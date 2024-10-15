@@ -1,5 +1,5 @@
-Flask
-opencv-python
-numpy
-mediapipe
-reportlab
+Flask==2.0.3
+opencv-python-headless==4.5.5.64
+numpy==1.21.2
+mediapipe==0.8.6
+reportlab==3.6.11
