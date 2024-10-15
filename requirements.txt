@@ -1,5 +1,5 @@
 Flask
-opencv-python
+opencv-python-headless
 mediapipe
 reportlab
 gunicorn

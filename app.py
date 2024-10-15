@@ -417,7 +417,8 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
                         styles['CustomBodyText'])])
                 elif key == 'forward_head':
                     data.append([Paragraph(
-                        f"<font color='black'>{key.replace('_', ' ').title()}:</font> <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='darkblue'>{direction}</font>",
+                        f"<font color='black'>{key.replace('_', ' ').title()}:</font> <font color='{```python
+color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='darkblue'>{direction}</font>",
                         styles['CustomBodyText'])])
                 elif key == 'knee_angle':
                     data.append([Paragraph(

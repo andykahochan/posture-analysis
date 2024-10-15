@@ -1,11 +1,11 @@
 cd "C:\Users\andy.kh.chan\OneDrive - St. James' Settlement\Python\postureanalysis"
 cd "C:\Users\azz00\OneDrive - St. James' Settlement\Python\postureanalysis"
 
-heroku logs --tail --app sspdhc
+heroku logs --tail --app postureanalysis
 
 git add .
 git commit -m "Updating with new Python and HTML code"
-git push heroku main
+git push heroku master
 
 Reset migration history:
 heroku run flask db init --app sspdhc
@@ -52,7 +52,7 @@ heroku run flask db upgrade --app sspdhc
 
 heroku login
 git init
-heroku git:remote -a sspdhc
+heroku git:remote -a postureanalysis
 
 
 
