@@ -15,7 +15,7 @@ __pycache__/
 *.pdf
 *.psd
 
-# Ignore upload and report directories if they contain large files
+# Ignore uploads and reports directories (they may contain large user-generated files)
 /uploads
 /reports
 
@@ -25,3 +25,8 @@ __pycache__/
 
 # Ignore virtual environment directories
 venv/
+
+# Ignore logs and temporary files
+*.log
+/tmp
+/logs
