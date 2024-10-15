@@ -1,0 +1,27 @@
+# Ignore Python cache files
+__pycache__/
+*.pyc
+
+# Ignore local environment variables
+.env
+
+# Ignore test directories
+/test
+/tests
+/spec
+
+# Ignore documentation and other large files
+*.md
+*.pdf
+*.psd
+
+# Ignore upload and report directories if they contain large files
+/uploads
+/reports
+
+# Ignore version control directories
+.git/
+.gitignore
+
+# Ignore virtual environment directories
+venv/
