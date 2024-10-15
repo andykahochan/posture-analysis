@@ -1,0 +1,115 @@
+cd "C:\Users\andy.kh.chan\OneDrive - St. James' Settlement\Python\postureanalysis"
+cd "C:\Users\azz00\OneDrive - St. James' Settlement\Python\postureanalysis"
+
+heroku logs --tail --app sspdhc
+
+git add .
+git commit -m "Updating with new Python and HTML code"
+git push heroku main
+
+Reset migration history:
+heroku run flask db init --app sspdhc
+
+
+DELETE APP.DB FIRST
+set FLASK_APP=Exercise.py
+flask db init
+flask db migrate -m "Initial migration."
+flask db upgrade
+
+
+heroku run flask db stamp head --app sspdhc
+heroku run flask db migrate --app sspdhc
+heroku run flask db upgrade --app sspdhc
+
+
+heroku pg:psql --app sspdhc
+
+
+check version:
+flask db history
+heroku run flask db history --app sspdhc
+
+if not equal:
+flask db stamp head
+flask db migrate
+flask db upgrade
+
+heroku config:set FLASK_APP=Exercise.py --app sspdhc
+heroku run --app sspdhc flask db init
+heroku run --app sspdhc flask db migrate
+heroku run --app sspdhc flask db upgrade
+heroku restart --app sspdhc
+
+then run:
+git push heroku main
+heroku run flask db stamp head --app sspdhc
+heroku run flask db upgrade --app sspdhc
+
+if still not ok, reset all data:
+heroku pg:reset DATABASE_URL --app sspdhc
+heroku run flask db upgrade --app sspdhc
+
+heroku login
+git init
+heroku git:remote -a sspdhc
+
+
+
+
+heroku logs --tail --app sspdhc
+
+DELETE APP.DB FIRST
+set FLASK_APP=Exercise.py
+flask db init
+flask db migrate -m "Initial migration."
+flask db upgrade
+
+Ultimate solution:
+heroku pg:psql --app sspdhc
+DROP TABLE alembic_version;
+\q
+flask db migrate -m "recreate migrations"
+heroku run --app sspdhc flask db stamp head
+heroku run --app sspdhc flask db upgrade
+
+
+heroku config:set FLASK_APP=Exercise.py --app sspdhc
+heroku run --app sspdhc flask db init
+heroku run --app sspdhc flask db migrate
+heroku run --app sspdhc flask db upgrade
+heroku run --app sspdhc flask db stamp head
+heroku restart --app sspdhc
+
+
+heroku run --app sspdhc flask --app Exercise db init
+heroku run --app sspdhc flask --app Exercise db migrate
+heroku run --app sspdhc flask --app Exercise db upgrade
+
+great it works. i have also update a heroku postgres database hence i want to make sure all information are stored at it, not local disk at heroku.
+the details:
+Host
+ccaml3dimis7eh.cluster-czz5s0kz4scl.eu-west-1.rds.amazonaws.com
+Database
+dejde7616pnc2h
+User
+u98f4djtfqbois
+Port
+5432
+Password
+p73ab862c469a13f9d0121e5ca4cc7ac40d8dc40a672bd5e8ca76faedc82c00b2
+URI
+postgres://u98f4djtfqbois:p73ab862c469a13f9d0121e5ca4cc7ac40d8dc40a672bd5e8ca76faedc82c00b2@ccaml3dimis7eh.cluster-czz5s0kz4scl.eu-west-1.rds.amazonaws.com:5432/dejde7616pnc2h
+Heroku CLI
+heroku pg:psql postgresql-regular-63176 --app sspdhc
+
+now i want the following updates:
+ 
+1. make the uploaded pictures stored at my heroku postgres database. teach me how to migrate/create the database as well. also make sure all previous functions work intact (including the pairing, assignation, order arrangement etc.)
+2. convert all the save file on heroku now, to store at database 
+3. Track who has login. Store it in the database (heroku postgres), with the membership number, login date and time, in 3 seprate columns. then create another button at the lowermost for exporting excel for this login tracking. the file name exported as excel is "login.xlsx" and sheet name is "login"
+4. Track who has click the youtube video. store the assigned name, youtube link, login date and time in 4 separate columns. make it as a spreadsheet named "Video" and it is the same excel file as the login.xlsx. make sure track all the clicks of different videos with the titles of the videos also stored.
+4. i provide you the qr scanner html. please modify it so that it works for both android and iphone users (it now only successful for android to turn on camera frame and read the code)
+5. delete all the azure open ai related functions in my original python code. 
+6. i provide you my index html as well. please help me delete the AI button as well. change the title to "深水埗地區康健中心網上學習系統"
+
