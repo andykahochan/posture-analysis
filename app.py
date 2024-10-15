@@ -176,6 +176,7 @@ def analyze_anterior_view(keypoints, image_shape):
             foot_angle = 180 - abs(foot_angle)
 
             if foot_angle > 30:
+                rotation = 'Externally rotated' if foot_angle > 0 else 'Internally rotated'
                 results[f'{side}_foot_rotation'] = ('Severe', foot_angle, 'Externally rotated')
             elif 18 < foot_angle <= 30:
                 results[f'{side}_foot_rotation'] = ('Mild', foot_angle, 'Externally rotated')
@@ -357,7 +358,7 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     styles.add(ParagraphStyle(name='CustomHeading2', parent=styles['Heading2'], fontSize=12, textColor=colors.darkgreen,
                               spaceAfter=6))
     styles.add(ParagraphStyle(name='CustomHeading3', parent=styles['Heading3'], fontSize=10, textColor=colors.black,
-                              spaceBefore=6, spaceAfter=3, bold=True))
+                              spaceBefore=6, spaceAfter=3, alignment=0))
 
     # Background and frame
     background_color = colors.Color(1, 0.9, 0.8)  # Light orange
@@ -549,6 +550,9 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     except Exception as e:
         logging.error(f"Error reading Intervention.txt: {str(e)}")
 
+    def key_to_title(key):
+        return ' '.join(word.capitalize() for word in key.replace('-', '_').split('_'))
+
     # Add exercises for detected issues
     for i, (issue, _) in enumerate(all_issues):
         issue_title = issue.split(':')[0].strip()
@@ -577,6 +581,7 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
 
     # General recommendations
     story.append(Paragraph("General Recommendations", styles['CustomHeading2']))
+
     general_recs = exercises.get('General Recommendations', [])
     if general_recs:
         for rec in general_recs:
@@ -638,11 +643,17 @@ def upload_files():
     lateral_results = analyze_lateral_view(lateral_keypoints, lateral_img.shape)
 
     # Generate report
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    report_filename = f'reports/posture_analysis_report_{timestamp}.pdf'
     generate_report(anterior_results, lateral_results, anterior_image_path, lateral_image_path)
 
-    return send_file(report_filename, as_attachment=True)
+    # Find the latest report generated
+    report_files = os.listdir('reports')
+    report_files = [f for f in report_files if f.startswith('posture_analysis_report_') and f.endswith('.pdf')]
+    if not report_files:
+        return jsonify({'error': 'Report generation failed'}), 500
+
+    latest_report = max([os.path.join('reports', f) for f in report_files], key=os.path.getctime)
+
+    return send_file(latest_report, as_attachment=True)
 
 
 if __name__ == "__main__":
