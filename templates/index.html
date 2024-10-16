@@ -4,43 +4,143 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Posture Analysis</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
     <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
         body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
+            font-family: 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
             padding: 20px;
+        }
+        .container {
+            background-color: rgba(255, 255, 255, 0.9);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+            animation: fadeIn 1s ease-out;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 2.5rem;
+            animation: slideDown 0.5s ease-out;
         }
         form {
             display: flex;
             flex-direction: column;
             gap: 20px;
         }
-        input[type="file"] {
-            display: block;
-            margin-top: 5px;
+        .file-input-container {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+            cursor: pointer;
         }
-        input[type="submit"] {
-            padding: 10px;
+        .file-input-container input[type="file"] {
+            font-size: 100px;
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+        .file-input-label {
             background-color: #4CAF50;
             color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            display: inline-block;
+            transition: background-color 0.3s ease;
+        }
+        .file-input-label:hover {
+            background-color: #45a049;
+        }
+        input[type="submit"] {
+            background-color: #3498db;
+            color: white;
             border: none;
+            padding: 15px;
+            font-size: 1rem;
+            border-radius: 5px;
             cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.1s ease;
+        }
+        input[type="submit"]:hover {
+            background-color: #2980b9;
+        }
+        input[type="submit"]:active {
+            transform: scale(0.98);
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes slideDown {
+            from { transform: translateY(-20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        .file-name {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+            h1 {
+                font-size: 2rem;
+            }
         }
     </style>
 </head>
 <body>
-    <h1>Posture Analysis</h1>
-    <form action="/" method="post" enctype="multipart/form-data">
-        <div>
-            <label for="anterior">Anterior View Image:</label>
-            <input type="file" id="anterior" name="anterior" accept="image/*" required>
-        </div>
-        <div>
-            <label for="lateral">Lateral View Image:</label>
-            <input type="file" id="lateral" name="lateral" accept="image/*" required>
-        </div>
-        <input type="submit" value="Analyze Posture">
-    </form>
+    <div class="container">
+        <h1>Posture Analysis</h1>
+        <form action="/" method="post" enctype="multipart/form-data">
+            <div>
+                <div class="file-input-container">
+                    <label for="anterior" class="file-input-label">Choose Anterior View Image</label>
+                    <input type="file" id="anterior" name="anterior" accept="image/*" required>
+                </div>
+                <div class="file-name" id="anterior-file-name"></div>
+            </div>
+            <div>
+                <div class="file-input-container">
+                    <label for="lateral" class="file-input-label">Choose Lateral View Image</label>
+                    <input type="file" id="lateral" name="lateral" accept="image/*" required>
+                </div>
+                <div class="file-name" id="lateral-file-name"></div>
+            </div>
+            <input type="submit" value="Analyze Posture">
+        </form>
+    </div>
+    <script>
+        document.getElementById('anterior').addEventListener('change', function(e) {
+            document.getElementById('anterior-file-name').textContent = e.target.files[0].name;
+        });
+        document.getElementById('lateral').addEventListener('change', function(e) {
+            document.getElementById('lateral-file-name').textContent = e.target.files[0].name;
+        });
+        document.querySelector('form').addEventListener('submit', function() {
+            document.querySelector('input[type="submit"]').style.animation = 'pulse 0.5s infinite';
+        });
+    </script>
 </body>
 </html>
