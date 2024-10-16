@@ -3,41 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <title>Posture Analysis</title>
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css">
     <style>
         body {
-            padding-top: 50px;
-            background-color: #f8f9fa;
+            font-family: Arial, sans-serif;
+            background-color: #f2f2f2;
+            margin: 0;
+            padding: 0;
         }
         .container {
-            max-width: 600px;
+            width: 50%;
+            margin: 5% auto;
+            background-color: #fff;
+            padding: 2em;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
-        .upload-section {
-            margin-bottom: 30px;
+        h2 {
+            text-align: center;
+            color: #333;
+        }
+        form {
+            display: flex;
+            flex-direction: column;
+        }
+        label {
+            margin-top: 1em;
+            color: #555;
+        }
+        input[type="file"] {
+            margin-top: 0.5em;
+        }
+        button {
+            margin-top: 2em;
+            padding: 1em;
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            font-size: 1em;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .flash {
+            color: red;
+            text-align: center;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2 class="text-center">Posture Analysis</h2>
-        <p class="text-center">Upload your anterior and lateral view images to generate a posture analysis report.</p>
+        <h2>Posture Analysis</h2>
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="flash">
+              {% for message in messages %}
+                <p>{{ message }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
         <form method="post" enctype="multipart/form-data">
-            {% with messages = get_flashed_messages() %}
-              {% if messages %}
-                <div class="alert alert-warning" role="alert">
-                  {{ messages[0] }}
-                </div>
-              {% endif %}
-            {% endwith %}
-            <div class="upload-section">
-                <label for="anterior_image">Upload Anterior View Image:</label>
-                <input type="file" class="form-control-file" id="anterior_image" name="anterior_image" accept="image/*" required>
-            </div>
-            <div class="upload-section">
-                <label for="lateral_image">Upload Lateral View Image:</label>
-                <input type="file" class="form-control-file" id="lateral_image" name="lateral_image" accept="image/*" required>
-            </div>
-            <button type="submit" class="btn btn-primary btn-block">Generate Report</button>
+            <label for="anterior_image">Upload Anterior View Image:</label>
+            <input type="file" name="anterior_image" id="anterior_image" accept="image/*" required>
+
+            <label for="lateral_image">Upload Lateral View Image:</label>
+            <input type="file" name="lateral_image" id="lateral_image" accept="image/*" required>
+
+            <button type="submit">Generate PDF Report</button>
         </form>
     </div>
 </body>

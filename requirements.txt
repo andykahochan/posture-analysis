@@ -1,6 +1,6 @@
 Flask
-gunicorn
-opencv-python-headless
+opencv-python=headless
 mediapipe
 reportlab
 numpy
+Werkzeug

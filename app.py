@@ -4,25 +4,39 @@ import numpy as np
 import mediapipe as mp
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch, cm
 from datetime import datetime
+from flask import Flask, render_template, request, send_file, redirect, url_for, flash
+from werkzeug.utils import secure_filename
 import logging
-from flask import Flask, render_template, request, send_file
-import tempfile
-import base64
-
-app = Flask(__name__)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Initialize Flask app
+app = Flask(__name__)
+app.secret_key = 'your_secret_key'  # Replace with a secure key in production
+
+# Configure upload folders
+UPLOAD_FOLDER = 'temp/uploads'
+REPORT_FOLDER = 'temp/reports'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(REPORT_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['REPORT_FOLDER'] = REPORT_FOLDER
+
+# Allowed extensions
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 
 # Initialize MediaPipe Pose
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose(static_image_mode=True, model_complexity=2, min_detection_confidence=0.5)
 mp_drawing = mp.solutions.drawing_utils
 
+
+# Function definitions (Same as your provided script)
 def detect_keypoints(image):
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     results = pose.process(image_rgb)
@@ -49,6 +63,7 @@ def detect_keypoints(image):
 
     return keypoints
 
+
 def calculate_angle(a, b, c):
     ba = np.array(a) - np.array(b)
     bc = np.array(c) - np.array(b)
@@ -56,6 +71,7 @@ def calculate_angle(a, b, c):
     cosine_angle = np.clip(cosine_angle, -1.0, 1.0)  # Clamp to avoid numerical issues
     angle = np.arccos(cosine_angle)
     return np.degrees(angle)
+
 
 def calculate_knee_deviation(hip, knee, ankle):
     # Calculate the vectors
@@ -85,6 +101,7 @@ def calculate_knee_deviation(hip, knee, ankle):
     else:
         return acute_knee_angle, 'Hyperextended'
 
+
 def analyze_anterior_view(keypoints, image_shape):
     results = {}
 
@@ -112,7 +129,8 @@ def analyze_anterior_view(keypoints, image_shape):
     if 'left_shoulder' in keypoints and 'right_shoulder' in keypoints:
         left_shoulder = np.array(keypoints['left_shoulder'])
         right_shoulder = np.array(keypoints['right_shoulder'])
-        shoulder_angle = np.degrees(np.arctan2(right_shoulder[1] - left_shoulder[1], right_shoulder[0] - left_shoulder[0]))
+        shoulder_angle = np.degrees(
+            np.arctan2(right_shoulder[1] - left_shoulder[1], right_shoulder[0] - left_shoulder[0]))
         shoulder_tilt = 180 - abs(shoulder_angle)
         if shoulder_tilt > 3:
             direction = 'Right' if shoulder_angle > 0 else 'Left'
@@ -153,7 +171,8 @@ def analyze_anterior_view(keypoints, image_shape):
             hip_knee_vector = knee - hip
             cross_product = np.cross(hip_ankle_vector[:2], hip_knee_vector[:2])
             angle = abs(calculate_angle(hip, knee, ankle) - 180)
-            knee_deviation = 'Valgus' if (cross_product > 0 and side == 'left') or (cross_product < 0 and side == 'right') else 'Varus'
+            knee_deviation = 'Valgus' if (cross_product > 0 and side == 'left') or (
+                        cross_product < 0 and side == 'right') else 'Varus'
 
             if angle > 15:
                 results[f'{side}_knee'] = ('Severe', angle, knee_deviation)
@@ -186,6 +205,7 @@ def analyze_anterior_view(keypoints, image_shape):
             results[f'{side}_foot_rotation'] = ('Not detected', 0, 'Unable to analyze')
 
     return results
+
 
 def analyze_lateral_view(keypoints, image_shape):
     results = {}
@@ -270,6 +290,7 @@ def analyze_lateral_view(keypoints, image_shape):
 
     return results
 
+
 def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
     annotated_image = image.copy()
     height, width, _ = annotated_image.shape
@@ -326,7 +347,8 @@ def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
 
     if view == 'anterior':
         if 'left_shoulder' in keypoints and 'right_shoulder' in keypoints and 'left_hip' in keypoints and 'right_hip' in keypoints:
-            mid_shoulder = tuple(((np.array(keypoints['left_shoulder']) + np.array(keypoints['right_shoulder'])) / 2).astype(int))
+            mid_shoulder = tuple(
+                ((np.array(keypoints['left_shoulder']) + np.array(keypoints['right_shoulder'])) / 2).astype(int))
             mid_hip = tuple(((np.array(keypoints['left_hip']) + np.array(keypoints['right_hip'])) / 2).astype(int))
             if 'left_eye' in keypoints and 'right_eye' in keypoints:
                 mid_eye = tuple(((np.array(keypoints['left_eye']) + np.array(keypoints['right_eye'])) / 2).astype(int))
@@ -335,7 +357,11 @@ def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
 
     return annotated_image
 
-def generate_report(anterior_results, lateral_results, anterior_image_path, lateral_image_path, output_path):
+
+def generate_report(anterior_results, lateral_results, anterior_image_path, lateral_image_path):
+    output_dir = app.config['REPORT_FOLDER']
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = os.path.join(output_dir, f"posture_analysis_report_{timestamp}.pdf")
     doc = SimpleDocTemplate(output_path, pagesize=letter, topMargin=0.5 * inch, bottomMargin=0.5 * inch,
                             leftMargin=2.5 * cm, rightMargin=0.5 * inch)
     styles = getSampleStyleSheet()
@@ -355,9 +381,9 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     frame_color = colors.white
 
     # Add logo
-    logo_path = "logo.jpg"
+    logo_path = "static/logo.jpg"
     if os.path.exists(logo_path):
-        logo = Image(logo_path, width=6 * inch, height=0.5 * inch, kind='proportional')
+        logo = RLImage(logo_path, width=6 * inch, height=0.5 * inch, kind='proportional')
         story.append(logo)
         story.append(Spacer(1, 6))
     else:
@@ -374,8 +400,8 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     # Images
     img_width = 3 * inch
     img_height = 4 * inch
-    story.append(Table([[Image(anterior_image_path, width=img_width, height=img_height, kind='proportional'),
-                         Image(lateral_image_path, width=img_width, height=img_height, kind='proportional')]],
+    story.append(Table([[RLImage(anterior_image_path, width=img_width, height=img_height, kind='proportional'),
+                         RLImage(lateral_image_path, width=img_width, height=img_height, kind='proportional')]],
                        colWidths=[3.5 * inch, 3.5 * inch],
                        hAlign='CENTER'))
     story.append(Spacer(1, 6))
@@ -547,7 +573,7 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
 
             image_path = os.path.join('Exercise', issue_title, f"{idx}.jpg")
             if os.path.exists(image_path):
-                story.append(Image(image_path, width=3 * cm, height=3 * cm, kind='proportional'))
+                story.append(RLImage(image_path, width=3 * cm, height=3 * cm, kind='proportional'))
                 logging.info(f"Found image for {issue_title}: {image_path}")
             else:
                 story.append(Paragraph("Exercise image not found.", styles['CustomBodyText']))
@@ -568,73 +594,108 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     else:
         story.append(Paragraph("No general recommendations found.", styles['CustomBodyText']))
 
-        # Build the PDF with custom background and frames
-        def add_background_and_frames(canvas_obj, doc_obj):
-            canvas_obj.saveState()
-            canvas_obj.setFillColor(background_color)
-            canvas_obj.rect(0, 0, doc_obj.pagesize[0], doc_obj.pagesize[1], fill=True, stroke=False)
-            canvas_obj.setFillColor(frame_color)
-            canvas_obj.roundRect(0.25 * inch, 0.25 * inch, doc_obj.pagesize[0] - 0.5 * inch,
-                                 doc_obj.pagesize[1] - 0.5 * inch, 10, fill=True, stroke=False)
-            canvas_obj.setFont('Helvetica', 9)
-            canvas_obj.drawRightString(7.5 * inch, 0.75 * inch, f"Page {doc_obj.page}")
-            canvas_obj.restoreState()
+    # Build the PDF with custom background and frames
+    def add_background_and_frames(canvas_obj, doc_obj):
+        canvas_obj.saveState()
+        canvas_obj.setFillColor(background_color)
+        canvas_obj.rect(0, 0, doc_obj.pagesize[0], doc_obj.pagesize[1], fill=True, stroke=False)
+        canvas_obj.setFillColor(frame_color)
+        canvas_obj.roundRect(0.25 * inch, 0.25 * inch, doc_obj.pagesize[0] - 0.5 * inch,
+                             doc_obj.pagesize[1] - 0.5 * inch, 10, fill=True, stroke=False)
+        canvas_obj.setFont('Helvetica', 9)
+        canvas_obj.drawRightString(7.5 * inch, 0.75 * inch, f"Page {doc_obj.page}")
+        canvas_obj.restoreState()
 
-        doc.build(story, onFirstPage=add_background_and_frames, onLaterPages=add_background_and_frames)
-        logging.info(f"Report generated: {output_path}")
+    doc.build(story, onFirstPage=add_background_and_frames, onLaterPages=add_background_and_frames)
+    logging.info(f"Report generated: {output_path}")
 
-    def key_to_title(key):
-        return ' '.join(word.capitalize() for word in key.replace('-', '_').split('_'))
+    return output_path
 
-    @app.route('/', methods=['GET', 'POST'])
-    def index():
-        if request.method == 'POST':
-            anterior_file = request.files['anterior']
-            lateral_file = request.files['lateral']
 
-            if anterior_file and lateral_file:
-                # Save uploaded files temporarily
-                anterior_path = tempfile.mktemp(suffix='.jpg')
-                lateral_path = tempfile.mktemp(suffix='.jpg')
-                anterior_file.save(anterior_path)
-                lateral_file.save(lateral_path)
+def key_to_title(key):
+    return ' '.join(word.capitalize() for word in key.replace('-', '_').split('_'))
 
-                # Process images
-                anterior_image = cv2.imread(anterior_path)
-                lateral_image = cv2.imread(lateral_path)
 
-                anterior_keypoints = detect_keypoints(anterior_image)
-                lateral_keypoints = detect_keypoints(lateral_image)
+# Routes
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    if request.method == 'POST':
+        # Check if the post request has the files
+        if 'anterior_image' not in request.files or 'lateral_image' not in request.files:
+            flash('No file part')
+            return redirect(request.url)
 
-                anterior_results = analyze_anterior_view(anterior_keypoints, anterior_image.shape)
-                lateral_results = analyze_lateral_view(lateral_keypoints, lateral_image.shape)
+        anterior_file = request.files['anterior_image']
+        lateral_file = request.files['lateral_image']
 
-                annotated_anterior = draw_landmarks_and_angles(anterior_image, anterior_keypoints or {}, 'anterior',
-                                                               anterior_results)
-                annotated_lateral = draw_landmarks_and_angles(lateral_image, lateral_keypoints or {}, 'lateral',
-                                                              lateral_results)
+        # If user does not select file, browser may also submit an empty part without filename
+        if anterior_file.filename == '' or lateral_file.filename == '':
+            flash('No selected file')
+            return redirect(request.url)
 
-                # Save annotated images
-                annotated_anterior_path = tempfile.mktemp(suffix='.jpg')
-                annotated_lateral_path = tempfile.mktemp(suffix='.jpg')
-                cv2.imwrite(annotated_anterior_path, annotated_anterior)
-                cv2.imwrite(annotated_lateral_path, annotated_lateral)
+        if anterior_file and allowed_file(anterior_file.filename) and lateral_file and allowed_file(
+                lateral_file.filename):
+            anterior_filename = secure_filename(anterior_file.filename)
+            lateral_filename = secure_filename(lateral_file.filename)
+            anterior_path = os.path.join(app.config['UPLOAD_FOLDER'], anterior_filename)
+            lateral_path = os.path.join(app.config['UPLOAD_FOLDER'], lateral_filename)
+            anterior_file.save(anterior_path)
+            lateral_file.save(lateral_path)
+            logging.info(f"Uploaded anterior image: {anterior_path}")
+            logging.info(f"Uploaded lateral image: {lateral_path}")
 
-                # Generate report
-                report_path = tempfile.mktemp(suffix='.pdf')
-                generate_report(anterior_results, lateral_results, annotated_anterior_path, annotated_lateral_path,
-                                report_path)
+            # Process images
+            anterior_image = cv2.imread(anterior_path)
+            lateral_image = cv2.imread(lateral_path)
 
-                # Clean up temporary files
-                os.remove(anterior_path)
-                os.remove(lateral_path)
-                os.remove(annotated_anterior_path)
-                os.remove(annotated_lateral_path)
+            if anterior_image is None or lateral_image is None:
+                flash('Error reading uploaded images.')
+                return redirect(request.url)
 
-                # Return the PDF file
-                return send_file(report_path, as_attachment=True, attachment_filename='posture_analysis_report.pdf')
+            anterior_keypoints = detect_keypoints(anterior_image)
+            lateral_keypoints = detect_keypoints(lateral_image)
 
-        return render_template('index.html')
+            anterior_results = analyze_anterior_view(anterior_keypoints, anterior_image.shape)
+            lateral_results = analyze_lateral_view(lateral_keypoints, lateral_image.shape)
 
-    if __name__ == '__main__':
-        app.run(debug=True)
+            annotated_anterior = draw_landmarks_and_angles(anterior_image, anterior_keypoints or {}, 'anterior',
+                                                           anterior_results)
+            annotated_lateral = draw_landmarks_and_angles(lateral_image, lateral_keypoints or {}, 'lateral',
+                                                          lateral_results)
+
+            # Generate new filenames with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            annotated_anterior_filename = f'annotated_anterior_{timestamp}.jpg'
+            annotated_lateral_filename = f'annotated_lateral_{timestamp}.jpg'
+            annotated_anterior_path = os.path.join(app.config['UPLOAD_FOLDER'], annotated_anterior_filename)
+            annotated_lateral_path = os.path.join(app.config['UPLOAD_FOLDER'], annotated_lateral_filename)
+
+            cv2.imwrite(annotated_anterior_path, annotated_anterior)
+            cv2.imwrite(annotated_lateral_path, annotated_lateral)
+
+            logging.info(f"Annotated anterior image saved: {annotated_anterior_path}")
+            logging.info(f"Annotated lateral image saved: {annotated_lateral_path}")
+
+            try:
+                report_path = generate_report(anterior_results, lateral_results, annotated_anterior_path,
+                                              annotated_lateral_path)
+                logging.info("Analysis complete. Report generated.")
+                # Serve the report for download
+                return send_file(report_path, as_attachment=True)
+            except Exception as e:
+                logging.error(f"An error occurred while generating the report: {str(e)}")
+                flash('Error generating report.')
+                return redirect(request.url)
+        else:
+            flash('Allowed file types are png, jpg, jpeg')
+            return redirect(request.url)
+    return render_template('index.html')
+
+
+def allowed_file(filename):
+    return '.' in filename and \
+        filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
