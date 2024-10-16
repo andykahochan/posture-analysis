@@ -1,5 +1,6 @@
 Flask
-Pillow
+opencv-python-headless
 numpy
 mediapipe
 reportlab
+gunicorn

@@ -1,79 +1,33 @@
-<!-- templates/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Posture Analysis</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f2f2f2;
-            padding: 50px;
-        }
-        .container {
-            background-color: white;
-            padding: 30px;
-            border-radius: 10px;
-            max-width: 600px;
-            margin: auto;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        h2 {
-            text-align: center;
-            color: #333;
-        }
-        input[type=file] {
-            width: 100%;
-            padding: 12px;
-            margin: 8px 0 20px 0;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-        }
-        button {
-            background-color: #4CAF50;
-            color: white;
-            padding: 12px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            width: 100%;
-            font-size: 16px;
-        }
-        button:hover {
-            background-color: #45a049;
-        }
-        .download-link {
-            text-align: center;
-            margin-top: 20px;
-        }
-        .download-link a {
-            color: #4CAF50;
-            text-decoration: none;
-            font-weight: bold;
-        }
-        .download-link a:hover {
-            text-decoration: underline;
-        }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
-        <h2>Posture Analysis Report Generator</h2>
-        <form method="POST" enctype="multipart/form-data" action="/">
-            <label for="anterior">Upload Anterior View Image:</label>
-            <input type="file" id="anterior" name="anterior" accept="image/*" required>
-
-            <label for="lateral">Upload Lateral View Image:</label>
-            <input type="file" id="lateral" name="lateral" accept="image/*" required>
-
+        <h1>Posture Analysis Report Generator</h1>
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <ul class="flashes">
+            {% for message in messages %}
+              <li>{{ message }}</li>
+            {% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+        <form method="post" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="anterior_image">Anterior View Image:</label>
+                <input type="file" name="anterior_image" id="anterior_image" accept="image/*" required>
+            </div>
+            <div class="form-group">
+                <label for="lateral_image">Lateral View Image:</label>
+                <input type="file" name="lateral_image" id="lateral_image" accept="image/*" required>
+            </div>
             <button type="submit">Generate Report</button>
         </form>
-        {% if report_url %}
-        <div class="download-link">
-            <p>Report Generated Successfully!</p>
-            <a href="{{ report_url }}" download>Download Report</a>
-        </div>
-        {% endif %}
     </div>
 </body>
 </html>
