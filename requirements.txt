@@ -2,5 +2,4 @@ Flask
 opencv-python-headless
 mediapipe
 reportlab
-numpy
 Werkzeug
