@@ -1,182 +1,44 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>姿勢分析</title>
+    <title>Posture Analysis</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css">
     <style>
-        @keyframes rainbow {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
-
-        @keyframes bounce {
-            0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-            40% { transform: translateY(-30px); }
-            60% { transform: translateY(-15px); }
-        }
-
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
-        }
-
         body {
-            font-family: 'Arial', sans-serif;
-            background: linear-gradient(45deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #8b00ff);
-            background-size: 600% 600%;
-            animation: rainbow 20s ease infinite;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
+            padding-top: 50px;
+            background-color: #f8f9fa;
         }
-
         .container {
-            background-color: rgba(255, 255, 255, 0.9);
-            border-radius: 20px;
-            padding: 30px;
-            margin: 20px;
             max-width: 600px;
-            width: 90%;
-            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
-            text-align: center;
-            animation: bounce 2s infinite;
         }
-
-        h1 {
-            color: #4a4a4a;
-            font-size: 2.5em;
+        .upload-section {
             margin-bottom: 30px;
-            animation: pulse 2s infinite;
-        }
-
-        .button-container {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 20px;
-        }
-
-        .button {
-            border: none;
-            color: white;
-            padding: 15px 32px;
-            font-size: 16px;
-            margin: 10px;
-            cursor: pointer;
-            border-radius: 50px;
-            transition: all 0.3s ease;
-        }
-
-        .button:hover {
-            transform: scale(1.1);
-        }
-
-        #anteriorButton {
-            background-color: #FFC0CB;
-        }
-
-        #lateralButton {
-            background-color: #FF69B4;
-        }
-
-        #downloadButton {
-            background-color: #4CAF50;
-            display: block;
-            margin: 20px auto;
-            animation: pulse 2s infinite;
-        }
-
-        input[type="file"] {
-            display: none;
-        }
-
-        #status {
-            margin-top: 20px;
-            font-size: 1.2em;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>姿勢分析</h1>
-        <div class="button-container">
-            <button id="anteriorButton" class="button">前視圖</button>
-            <button id="lateralButton" class="button">側視圖</button>
-        </div>
-        <input type="file" id="anterior_image" accept="image/*">
-        <input type="file" id="lateral_image" accept="image/*">
-        <button id="downloadButton" class="button">分析並下載報告</button>
-        <div id="status"></div>
+        <h2 class="text-center">Posture Analysis</h2>
+        <p class="text-center">Upload your anterior and lateral view images to generate a posture analysis report.</p>
+        <form method="post" enctype="multipart/form-data">
+            {% with messages = get_flashed_messages() %}
+              {% if messages %}
+                <div class="alert alert-warning" role="alert">
+                  {{ messages[0] }}
+                </div>
+              {% endif %}
+            {% endwith %}
+            <div class="upload-section">
+                <label for="anterior_image">Upload Anterior View Image:</label>
+                <input type="file" class="form-control-file" id="anterior_image" name="anterior_image" accept="image/*" required>
+            </div>
+            <div class="upload-section">
+                <label for="lateral_image">Upload Lateral View Image:</label>
+                <input type="file" class="form-control-file" id="lateral_image" name="lateral_image" accept="image/*" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Generate Report</button>
+        </form>
     </div>
-
-    <script>
-        const anteriorButton = document.getElementById('anteriorButton');
-        const lateralButton = document.getElementById('lateralButton');
-        const downloadButton = document.getElementById('downloadButton');
-        const anteriorInput = document.getElementById('anterior_image');
-        const lateralInput = document.getElementById('lateral_image');
-        const statusDiv = document.getElementById('status');
-
-        anteriorButton.addEventListener('click', () => anteriorInput.click());
-        lateralButton.addEventListener('click', () => lateralInput.click());
-
-        anteriorInput.addEventListener('change', (event) => {
-            if (event.target.files.length > 0) {
-                anteriorButton.textContent = '前視圖已上傳';
-            }
-        });
-
-        lateralInput.addEventListener('change', (event) => {
-            if (event.target.files.length > 0) {
-                lateralButton.textContent = '側視圖已上傳';
-            }
-        });
-
-        downloadButton.addEventListener('click', () => {
-            const anteriorFile = anteriorInput.files[0];
-            const lateralFile = lateralInput.files[0];
-
-            if (!anteriorFile || !lateralFile) {
-                statusDiv.textContent = '請上傳前視圖和側視圖。';
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('anterior_image', anteriorFile);
-            formData.append('lateral_image', lateralFile);
-
-            fetch('/upload', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => {
-                if (response.ok) {
-                    return response.blob();
-                } else {
-                    throw new Error('圖像分析失敗。');
-                }
-            })
-            .then(blob => {
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-                a.download = '姿勢分析報告.pdf';
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                statusDiv.textContent = '下載開始！';
-            })
-            .catch(error => {
-                statusDiv.textContent = error.message;
-            });
-        });
-    </script>
 </body>
 </html>
