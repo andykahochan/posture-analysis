@@ -3,41 +3,77 @@
 <head>
     <meta charset="UTF-8">
     <title>Posture Analysis</title>
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css">
     <style>
         body {
-            padding-top: 50px;
-            background-color: #f8f9fa;
+            font-family: Arial, sans-serif;
+            background-color: #f2f2f2;
+            padding: 20px;
         }
         .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
             max-width: 600px;
+            margin: auto;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
         }
-        .upload-section {
-            margin-bottom: 30px;
+        h2 {
+            text-align: center;
+            color: #333333;
+        }
+        input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            margin: 8px 0 20px 0;
+            border: 1px solid #cccccc;
+            border-radius: 4px;
+        }
+        input[type="submit"] {
+            background-color: #4CAF50;
+            color: white;
+            padding: 14px 20px;
+            margin: auto;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            display: block;
+            width: 100%;
+            font-size: 16px;
+        }
+        input[type="submit"]:hover {
+            background-color: #45a049;
+        }
+        .messages {
+            margin-bottom: 20px;
+        }
+        .messages .error {
+            color: red;
+        }
+        .messages .success {
+            color: green;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2 class="text-center">Posture Analysis</h2>
-        <p class="text-center">Upload your anterior and lateral view images to generate a posture analysis report.</p>
-        <form method="post" enctype="multipart/form-data">
-            {% with messages = get_flashed_messages() %}
-              {% if messages %}
-                <div class="alert alert-warning" role="alert">
-                  {{ messages[0] }}
+        <h2>Posture Analysis</h2>
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="messages">
+                    {% for message in messages %}
+                        <p class="error">{{ message }}</p>
+                    {% endfor %}
                 </div>
-              {% endif %}
-            {% endwith %}
-            <div class="upload-section">
-                <label for="anterior_image">Upload Anterior View Image:</label>
-                <input type="file" class="form-control-file" id="anterior_image" name="anterior_image" accept="image/*" required>
-            </div>
-            <div class="upload-section">
-                <label for="lateral_image">Upload Lateral View Image:</label>
-                <input type="file" class="form-control-file" id="lateral_image" name="lateral_image" accept="image/*" required>
-            </div>
-            <button type="submit" class="btn btn-primary btn-block">Generate Report</button>
+            {% endif %}
+        {% endwith %}
+        <form method="POST" enctype="multipart/form-data">
+            <label for="anterior_image">Upload Anterior View Image:</label>
+            <input type="file" name="anterior_image" id="anterior_image" accept=".png, .jpg, .jpeg" required>
+
+            <label for="lateral_image">Upload Lateral View Image:</label>
+            <input type="file" name="lateral_image" id="lateral_image" accept=".png, .jpg, .jpeg" required>
+
+            <input type="submit" value="Analyze and Download Report">
         </form>
     </div>
 </body>
