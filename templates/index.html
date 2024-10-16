@@ -1,3 +1,4 @@
+<!-- templates/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,70 +8,72 @@
         body {
             font-family: Arial, sans-serif;
             background-color: #f2f2f2;
-            margin: 0;
-            padding: 0;
+            padding: 50px;
         }
         .container {
-            width: 50%;
-            margin: 5% auto;
-            background-color: #fff;
-            padding: 2em;
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            max-width: 600px;
+            margin: auto;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
         h2 {
             text-align: center;
             color: #333;
         }
-        form {
-            display: flex;
-            flex-direction: column;
-        }
-        label {
-            margin-top: 1em;
-            color: #555;
-        }
-        input[type="file"] {
-            margin-top: 0.5em;
+        input[type=file] {
+            width: 100%;
+            padding: 12px;
+            margin: 8px 0 20px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
         }
         button {
-            margin-top: 2em;
-            padding: 1em;
             background-color: #4CAF50;
-            border: none;
             color: white;
-            font-size: 1em;
+            padding: 12px;
+            border: none;
+            border-radius: 4px;
             cursor: pointer;
+            width: 100%;
+            font-size: 16px;
         }
         button:hover {
             background-color: #45a049;
         }
-        .flash {
-            color: red;
+        .download-link {
             text-align: center;
+            margin-top: 20px;
+        }
+        .download-link a {
+            color: #4CAF50;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .download-link a:hover {
+            text-decoration: underline;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2>Posture Analysis</h2>
-        {% with messages = get_flashed_messages() %}
-          {% if messages %}
-            <div class="flash">
-              {% for message in messages %}
-                <p>{{ message }}</p>
-              {% endfor %}
-            </div>
-          {% endif %}
-        {% endwith %}
-        <form method="post" enctype="multipart/form-data">
-            <label for="anterior_image">Upload Anterior View Image:</label>
-            <input type="file" name="anterior_image" id="anterior_image" accept="image/*" required>
+        <h2>Posture Analysis Report Generator</h2>
+        <form method="POST" enctype="multipart/form-data" action="/">
+            <label for="anterior">Upload Anterior View Image:</label>
+            <input type="file" id="anterior" name="anterior" accept="image/*" required>
 
-            <label for="lateral_image">Upload Lateral View Image:</label>
-            <input type="file" name="lateral_image" id="lateral_image" accept="image/*" required>
+            <label for="lateral">Upload Lateral View Image:</label>
+            <input type="file" id="lateral" name="lateral" accept="image/*" required>
 
-            <button type="submit">Generate PDF Report</button>
+            <button type="submit">Generate Report</button>
         </form>
+        {% if report_url %}
+        <div class="download-link">
+            <p>Report Generated Successfully!</p>
+            <a href="{{ report_url }}" download>Download Report</a>
+        </div>
+        {% endif %}
     </div>
 </body>
 </html>

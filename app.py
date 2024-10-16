@@ -1,6 +1,8 @@
+# main.py
 import os
-import cv2
+import io
 import numpy as np
+from PIL import Image, ImageDraw
 import mediapipe as mp
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -8,44 +10,31 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RL
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch, cm
 from datetime import datetime
-from flask import Flask, render_template, request, send_file, redirect, url_for, flash
-from werkzeug.utils import secure_filename
+from flask import Flask, render_template, request, send_file, redirect, url_for
 import logging
+import tempfile
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# Initialize Flask app
-app = Flask(__name__)
-app.secret_key = 'your_secret_key'  # Replace with a secure key in production
-
-# Configure upload folders
-UPLOAD_FOLDER = 'temp/uploads'
-REPORT_FOLDER = 'temp/reports'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(REPORT_FOLDER, exist_ok=True)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['REPORT_FOLDER'] = REPORT_FOLDER
-
-# Allowed extensions
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 
 # Initialize MediaPipe Pose
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose(static_image_mode=True, model_complexity=2, min_detection_confidence=0.5)
 mp_drawing = mp.solutions.drawing_utils
 
+app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB upload limit
 
-# Function definitions (Same as your provided script)
 def detect_keypoints(image):
-    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image_np = np.array(image)
+    image_rgb = image_np[:, :, ::-1]  # Convert RGB to BGR
     results = pose.process(image_rgb)
 
     if not results.pose_landmarks:
         logging.warning("No pose landmarks detected.")
         return None
 
-    height, width, _ = image.shape
+    width, height = image.size
     keypoints = {}
 
     for idx, landmark in enumerate(results.pose_landmarks.landmark):
@@ -63,7 +52,6 @@ def detect_keypoints(image):
 
     return keypoints
 
-
 def calculate_angle(a, b, c):
     ba = np.array(a) - np.array(b)
     bc = np.array(c) - np.array(b)
@@ -71,7 +59,6 @@ def calculate_angle(a, b, c):
     cosine_angle = np.clip(cosine_angle, -1.0, 1.0)  # Clamp to avoid numerical issues
     angle = np.arccos(cosine_angle)
     return np.degrees(angle)
-
 
 def calculate_knee_deviation(hip, knee, ankle):
     # Calculate the vectors
@@ -101,7 +88,6 @@ def calculate_knee_deviation(hip, knee, ankle):
     else:
         return acute_knee_angle, 'Hyperextended'
 
-
 def analyze_anterior_view(keypoints, image_shape):
     results = {}
 
@@ -129,8 +115,7 @@ def analyze_anterior_view(keypoints, image_shape):
     if 'left_shoulder' in keypoints and 'right_shoulder' in keypoints:
         left_shoulder = np.array(keypoints['left_shoulder'])
         right_shoulder = np.array(keypoints['right_shoulder'])
-        shoulder_angle = np.degrees(
-            np.arctan2(right_shoulder[1] - left_shoulder[1], right_shoulder[0] - left_shoulder[0]))
+        shoulder_angle = np.degrees(np.arctan2(right_shoulder[1] - left_shoulder[1], right_shoulder[0] - left_shoulder[0]))
         shoulder_tilt = 180 - abs(shoulder_angle)
         if shoulder_tilt > 3:
             direction = 'Right' if shoulder_angle > 0 else 'Left'
@@ -163,16 +148,15 @@ def analyze_anterior_view(keypoints, image_shape):
     # Knee Valgus/Varus
     for side in ['left', 'right']:
         if f'{side}_hip' in keypoints and f'{side}_knee' in keypoints and f'{side}_ankle' in keypoints:
-            hip = np.array(keypoints[f'{side}_hip'])
-            knee = np.array(keypoints[f'{side}_knee'])
-            ankle = np.array(keypoints[f'{side}_ankle'])
+            hip = keypoints[f'{side}_hip']
+            knee = keypoints[f'{side}_knee']
+            ankle = keypoints[f'{side}_ankle']
 
-            hip_ankle_vector = ankle - hip
-            hip_knee_vector = knee - hip
+            hip_ankle_vector = np.array(ankle) - np.array(hip)
+            hip_knee_vector = np.array(knee) - np.array(hip)
             cross_product = np.cross(hip_ankle_vector[:2], hip_knee_vector[:2])
             angle = abs(calculate_angle(hip, knee, ankle) - 180)
-            knee_deviation = 'Valgus' if (cross_product > 0 and side == 'left') or (
-                        cross_product < 0 and side == 'right') else 'Varus'
+            knee_deviation = 'Valgus' if (cross_product > 0 and side == 'left') or (cross_product < 0 and side == 'right') else 'Varus'
 
             if angle > 15:
                 results[f'{side}_knee'] = ('Severe', angle, knee_deviation)
@@ -206,10 +190,9 @@ def analyze_anterior_view(keypoints, image_shape):
 
     return results
 
-
 def analyze_lateral_view(keypoints, image_shape):
     results = {}
-    height, width = image_shape[:2]
+    height, width = image_shape
     vertical_line_x = width // 2
 
     if not keypoints:
@@ -220,7 +203,7 @@ def analyze_lateral_view(keypoints, image_shape):
         ear = np.array(keypoints['right_ear'])
         shoulder = np.array(keypoints['right_shoulder'])
         forward_head_distance = (ear[0] - shoulder[0]) / width * 100  # Convert to percentage of image width
-        if forward_head_distance > 5:  # Assuming 5% of image width as threshold (adjust as needed)
+        if forward_head_distance > 5:  # Thresholds can be adjusted
             results['forward_head'] = ('Severe', forward_head_distance, 'Forward')
         elif forward_head_distance > 2:
             results['forward_head'] = ('Mild', forward_head_distance, 'Forward')
@@ -290,23 +273,23 @@ def analyze_lateral_view(keypoints, image_shape):
 
     return results
 
-
 def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
     annotated_image = image.copy()
-    height, width, _ = annotated_image.shape
+    draw = ImageDraw.Draw(annotated_image)
+    width, height = annotated_image.size
 
     # Draw vertical line for perfect alignment
-    cv2.line(annotated_image, (width // 2, 0), (width // 2, height), (255, 0, 0), 2)  # Blue vertical line
+    draw.line([(width // 2, 0), (width // 2, height)], fill=(0, 0, 255), width=2)  # Blue vertical line
 
-    def draw_point(p, color):
-        cv2.circle(annotated_image, p, 5, color, -1)
+    def draw_point(p, color=(0, 255, 0)):
+        draw.ellipse((p[0]-5, p[1]-5, p[0]+5, p[1]+5), fill=color)
 
-    def draw_line(p1, p2, color):
-        cv2.line(annotated_image, p1, p2, color, 2)
+    def draw_line(p1, p2, color=(0, 255, 0)):
+        draw.line([p1, p2], fill=color, width=2)
 
     # Draw keypoints
     for part, point in keypoints.items():
-        draw_point(point, (0, 255, 0))
+        draw_point(point)
 
     # Define connections and draw them
     if view == 'anterior':
@@ -336,19 +319,19 @@ def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
         ]
 
     for start, end, analysis_key in connections:
-        color = (0, 255, 0)  # Default green
-        if analysis_key and analysis_key in analysis_results:
-            status = analysis_results[analysis_key][0]
-            if 'Severe' in status:
-                color = (0, 0, 255)  # Red if severe
-            elif 'Mild' in status:
-                color = (0, 165, 255)  # Orange if mild
-        draw_line(keypoints[start], keypoints[end], color)
+        if start in keypoints and end in keypoints:
+            color = (0, 255, 0)  # Default green
+            if analysis_key and analysis_key in analysis_results:
+                status = analysis_results[analysis_key][0]
+                if 'Severe' in status:
+                    color = (255, 0, 0)  # Red if severe
+                elif 'Mild' in status:
+                    color = (255, 165, 0)  # Orange if mild
+            draw_line(keypoints[start], keypoints[end], color)
 
     if view == 'anterior':
         if 'left_shoulder' in keypoints and 'right_shoulder' in keypoints and 'left_hip' in keypoints and 'right_hip' in keypoints:
-            mid_shoulder = tuple(
-                ((np.array(keypoints['left_shoulder']) + np.array(keypoints['right_shoulder'])) / 2).astype(int))
+            mid_shoulder = tuple(((np.array(keypoints['left_shoulder']) + np.array(keypoints['right_shoulder'])) / 2).astype(int))
             mid_hip = tuple(((np.array(keypoints['left_hip']) + np.array(keypoints['right_hip'])) / 2).astype(int))
             if 'left_eye' in keypoints and 'right_eye' in keypoints:
                 mid_eye = tuple(((np.array(keypoints['left_eye']) + np.array(keypoints['right_eye'])) / 2).astype(int))
@@ -357,12 +340,9 @@ def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
 
     return annotated_image
 
-
-def generate_report(anterior_results, lateral_results, anterior_image_path, lateral_image_path):
-    output_dir = app.config['REPORT_FOLDER']
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = os.path.join(output_dir, f"posture_analysis_report_{timestamp}.pdf")
-    doc = SimpleDocTemplate(output_path, pagesize=letter, topMargin=0.5 * inch, bottomMargin=0.5 * inch,
+def generate_report(anterior_results, lateral_results, anterior_image, lateral_image):
+    output_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(output_buffer, pagesize=letter, topMargin=0.5 * inch, bottomMargin=0.5 * inch,
                             leftMargin=2.5 * cm, rightMargin=0.5 * inch)
     styles = getSampleStyleSheet()
     story = []
@@ -374,16 +354,12 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     styles.add(ParagraphStyle(name='CustomHeading2', parent=styles['Heading2'], fontSize=12, textColor=colors.darkgreen,
                               spaceAfter=6))
     styles.add(ParagraphStyle(name='CustomHeading3', parent=styles['Heading3'], fontSize=10, textColor=colors.black,
-                              spaceBefore=6, spaceAfter=3, bold=True))
-
-    # Background and frame
-    background_color = colors.Color(1, 0.9, 0.8)  # Light orange
-    frame_color = colors.white
+                              spaceBefore=6, spaceAfter=3, fontName='Helvetica-Bold'))
 
     # Add logo
-    logo_path = "static/logo.jpg"
+    logo_path = os.path.join('static', 'logo.jpg')
     if os.path.exists(logo_path):
-        logo = RLImage(logo_path, width=6 * inch, height=0.5 * inch, kind='proportional')
+        logo = RLImage(logo_path, width=6 * inch, height=0.5 * inch)
         story.append(logo)
         story.append(Spacer(1, 6))
     else:
@@ -398,10 +374,18 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     story.append(Spacer(1, 6))
 
     # Images
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_anterior:
+        anterior_image.save(temp_anterior.name)
+        temp_anterior_path = temp_anterior.name
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_lateral:
+        lateral_image.save(temp_lateral.name)
+        temp_lateral_path = temp_lateral.name
+
     img_width = 3 * inch
     img_height = 4 * inch
-    story.append(Table([[RLImage(anterior_image_path, width=img_width, height=img_height, kind='proportional'),
-                         RLImage(lateral_image_path, width=img_width, height=img_height, kind='proportional')]],
+    story.append(Table([[RLImage(temp_anterior_path, width=img_width, height=img_height),
+                         RLImage(temp_lateral_path, width=img_width, height=img_height)]],
                        colWidths=[3.5 * inch, 3.5 * inch],
                        hAlign='CENTER'))
     story.append(Spacer(1, 6))
@@ -414,13 +398,10 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
                 status, measurement, direction = value
                 if 'Severe' in status:
                     color = 'red'
-                    bold = 'bold'
                 elif 'Mild' in status:
                     color = 'darkorange'
-                    bold = 'bold'
                 else:
                     color = 'black'
-                    bold = 'normal'
 
                 direction_color = 'black'
                 if 'Left' in direction or 'Varus' in direction or 'Externally' in direction:
@@ -430,11 +411,11 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
 
                 if key == 'pelvic_tilt' and title == "Lateral View Analysis":
                     data.append([Paragraph(
-                        f"<font color='black'>{key.replace('_', ' ').title()}:</font> <font color='red'><b>{status}</b></font> - {direction}",
+                        f"<b>{key.replace('_', ' ').title()}:</b> <font color='{color}'><b>{status}</b></font> - {direction}",
                         styles['CustomBodyText'])])
                 elif key == 'forward_head':
                     data.append([Paragraph(
-                        f"<font color='black'>{key.replace('_', ' ').title()}:</font> <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='darkblue'>{direction}</font>",
+                        f"<b>{key.replace('_', ' ').title()}:</b> <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='darkblue'>{direction}</font>",
                         styles['CustomBodyText'])])
                 elif key == 'knee_angle':
                     data.append([Paragraph(
@@ -442,7 +423,7 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
                         styles['CustomBodyText'])])
                 else:
                     data.append([Paragraph(
-                        f"<font color='black'>{key.replace('_', ' ').title()}:</font> <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='{direction_color}'>{direction}</font>",
+                        f"<b>{key.replace('_', ' ').title()}:</b> <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='{direction_color}'>{direction}</font>",
                         styles['CustomBodyText'])])
             else:
                 logging.warning(f"Unexpected format for key {key}: {value}")
@@ -507,13 +488,10 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
 
         if 'Severe' in value:
             color = 'red'
-            bold = 'bold'
         elif 'Mild' in value:
             color = 'darkorange'
-            bold = 'bold'
         else:
             color = 'black'
-            bold = 'normal'
 
         direction = value.split('-')[-1].strip()
         direction_color = 'black'
@@ -524,15 +502,15 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
 
         if 'Knee Angle' in key:
             story.append(Paragraph(
-                f"{i}. <font color='black'>{key}:</font> <font color='{color}'><b>{value.split('-')[0].strip()}</b></font> - <font color='{direction_color}'>{direction}</font>",
+                f"{i}. <b>{key}:</b> <font color='{color}'><b>{value.split('-')[0].strip()}</b></font> - <font color='{direction_color}'>{direction}</font>",
                 styles['CustomBodyText']))
         elif 'pelvic tilt' in key.lower():
             story.append(Paragraph(
-                f"{i}. <font color='black'>{key}:</font> <font color='{color}'><b>{value.split('-')[0].strip()}</b></font> - <font color='{direction_color}'>{direction}</font>",
+                f"{i}. <b>{key}:</b> <font color='{color}'><b>{value.split('-')[0].strip()}</b></font> - <font color='{direction_color}'>{direction}</font>",
                 styles['CustomBodyText']))
         else:
             story.append(Paragraph(
-                f"{i}. <font color='black'>{key}:</font> <font color='{color}'><b>{value.split('-')[0].strip()}</b></font> - <font color='{direction_color}'>{direction}</font>",
+                f"{i}. <b>{key}:</b> <font color='{color}'><b>{value.split('-')[0].strip()}</b></font> - <font color='{direction_color}'>{direction}</font>",
                 styles['CustomBodyText']))
 
     if not all_issues:
@@ -552,7 +530,7 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
                 if line.endswith(':'):
                     current_issue = line[:-1].strip()
                     exercises[current_issue] = []
-                elif line.startswith(('1.', '2.')) and current_issue:
+                elif line.startswith(('1.', '2.', '3.', '4.', '5.')) and current_issue:
                     exercises[current_issue].append(line)
     except FileNotFoundError:
         logging.error("Intervention.txt file not found.")
@@ -571,13 +549,16 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
         for idx, exercise in enumerate(issue_exercises, start=1):
             story.append(Paragraph(f"{exercise}", styles['CustomBodyText']))
 
-            image_path = os.path.join('Exercise', issue_title, f"{idx}.jpg")
-            if os.path.exists(image_path):
-                story.append(RLImage(image_path, width=3 * cm, height=3 * cm, kind='proportional'))
-                logging.info(f"Found image for {issue_title}: {image_path}")
+            exercise_image_path = os.path.join('static', 'Exercise', issue_title, f"{idx}.jpg")
+            if os.path.exists(exercise_image_path):
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_ex:
+                    temp_ex.write(open(exercise_image_path, 'rb').read())
+                    temp_ex_path = temp_ex.name
+                story.append(RLImage(temp_ex_path, width=3 * cm, height=3 * cm))
+                logging.info(f"Found image for {issue_title}: {exercise_image_path}")
             else:
                 story.append(Paragraph("Exercise image not found.", styles['CustomBodyText']))
-                logging.warning(f"Image not found for {issue_title}: {image_path}")
+                logging.warning(f"Image not found for {issue_title}: {exercise_image_path}")
 
         if not issue_exercises:
             story.append(Paragraph("No specific exercises found for this issue.", styles['CustomBodyText']))
@@ -594,9 +575,11 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     else:
         story.append(Paragraph("No general recommendations found.", styles['CustomBodyText']))
 
-    # Build the PDF with custom background and frames
+    # Build the PDF
     def add_background_and_frames(canvas_obj, doc_obj):
         canvas_obj.saveState()
+        background_color = colors.Color(1, 0.9, 0.8)  # Light orange
+        frame_color = colors.white
         canvas_obj.setFillColor(background_color)
         canvas_obj.rect(0, 0, doc_obj.pagesize[0], doc_obj.pagesize[1], fill=True, stroke=False)
         canvas_obj.setFillColor(frame_color)
@@ -607,95 +590,60 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
         canvas_obj.restoreState()
 
     doc.build(story, onFirstPage=add_background_and_frames, onLaterPages=add_background_and_frames)
-    logging.info(f"Report generated: {output_path}")
 
-    return output_path
+    # Clean up temporary image files
+    os.remove(temp_anterior_path)
+    os.remove(temp_lateral_path)
 
+    return output_buffer
 
 def key_to_title(key):
     return ' '.join(word.capitalize() for word in key.replace('-', '_').split('_'))
 
-
-# Routes
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
-        # Check if the post request has the files
-        if 'anterior_image' not in request.files or 'lateral_image' not in request.files:
-            flash('No file part')
+        if 'anterior' not in request.files or 'lateral' not in request.files:
+            logging.error("No file part")
             return redirect(request.url)
 
-        anterior_file = request.files['anterior_image']
-        lateral_file = request.files['lateral_image']
+        anterior_file = request.files['anterior']
+        lateral_file = request.files['lateral']
 
-        # If user does not select file, browser may also submit an empty part without filename
         if anterior_file.filename == '' or lateral_file.filename == '':
-            flash('No selected file')
+            logging.error("No selected file")
             return redirect(request.url)
 
-        if anterior_file and allowed_file(anterior_file.filename) and lateral_file and allowed_file(
-                lateral_file.filename):
-            anterior_filename = secure_filename(anterior_file.filename)
-            lateral_filename = secure_filename(lateral_file.filename)
-            anterior_path = os.path.join(app.config['UPLOAD_FOLDER'], anterior_filename)
-            lateral_path = os.path.join(app.config['UPLOAD_FOLDER'], lateral_filename)
-            anterior_file.save(anterior_path)
-            lateral_file.save(lateral_path)
-            logging.info(f"Uploaded anterior image: {anterior_path}")
-            logging.info(f"Uploaded lateral image: {lateral_path}")
-
-            # Process images
-            anterior_image = cv2.imread(anterior_path)
-            lateral_image = cv2.imread(lateral_path)
-
-            if anterior_image is None or lateral_image is None:
-                flash('Error reading uploaded images.')
-                return redirect(request.url)
-
-            anterior_keypoints = detect_keypoints(anterior_image)
-            lateral_keypoints = detect_keypoints(lateral_image)
-
-            anterior_results = analyze_anterior_view(anterior_keypoints, anterior_image.shape)
-            lateral_results = analyze_lateral_view(lateral_keypoints, lateral_image.shape)
-
-            annotated_anterior = draw_landmarks_and_angles(anterior_image, anterior_keypoints or {}, 'anterior',
-                                                           anterior_results)
-            annotated_lateral = draw_landmarks_and_angles(lateral_image, lateral_keypoints or {}, 'lateral',
-                                                          lateral_results)
-
-            # Generate new filenames with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            annotated_anterior_filename = f'annotated_anterior_{timestamp}.jpg'
-            annotated_lateral_filename = f'annotated_lateral_{timestamp}.jpg'
-            annotated_anterior_path = os.path.join(app.config['UPLOAD_FOLDER'], annotated_anterior_filename)
-            annotated_lateral_path = os.path.join(app.config['UPLOAD_FOLDER'], annotated_lateral_filename)
-
-            cv2.imwrite(annotated_anterior_path, annotated_anterior)
-            cv2.imwrite(annotated_lateral_path, annotated_lateral)
-
-            logging.info(f"Annotated anterior image saved: {annotated_anterior_path}")
-            logging.info(f"Annotated lateral image saved: {annotated_lateral_path}")
-
-            try:
-                report_path = generate_report(anterior_results, lateral_results, annotated_anterior_path,
-                                              annotated_lateral_path)
-                logging.info("Analysis complete. Report generated.")
-                # Serve the report for download
-                return send_file(report_path, as_attachment=True)
-            except Exception as e:
-                logging.error(f"An error occurred while generating the report: {str(e)}")
-                flash('Error generating report.')
-                return redirect(request.url)
-        else:
-            flash('Allowed file types are png, jpg, jpeg')
+        try:
+            anterior_image = Image.open(anterior_file.stream).convert('RGB')
+            lateral_image = Image.open(lateral_file.stream).convert('RGB')
+        except Exception as e:
+            logging.error(f"Error opening images: {str(e)}")
             return redirect(request.url)
+
+        anterior_keypoints = detect_keypoints(anterior_image)
+        lateral_keypoints = detect_keypoints(lateral_image)
+
+        anterior_results = analyze_anterior_view(anterior_keypoints, anterior_image.size)
+        lateral_results = analyze_lateral_view(lateral_keypoints, lateral_image.size)
+
+        annotated_anterior = draw_landmarks_and_angles(anterior_image, anterior_keypoints or {}, 'anterior',
+                                                       anterior_results)
+        annotated_lateral = draw_landmarks_and_angles(lateral_image, lateral_keypoints or {}, 'lateral',
+                                                      lateral_results)
+
+        # Generate PDF report
+        report_buffer = generate_report(anterior_results, lateral_results, annotated_anterior, annotated_lateral)
+        report_buffer.seek(0)
+
+        # Save the PDF to a temporary file
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_filename = f"posture_analysis_report_{timestamp}.pdf"
+
+        return send_file(report_buffer, as_attachment=True, download_name=report_filename,
+                         mimetype='application/pdf')
+
     return render_template('index.html')
-
-
-def allowed_file(filename):
-    return '.' in filename and \
-        filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
 
 if __name__ == "__main__":
     app.run(debug=True)
