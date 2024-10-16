@@ -3,5 +3,4 @@ gunicorn
 opencv-python-headless
 mediapipe
 reportlab
-Werkzeug
 Pillow
