@@ -9,19 +9,19 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch, cm
 from datetime import datetime
 import logging
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, render_template, request, send_file
+import tempfile
+import base64
+
+app = Flask(__name__)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# Initialize Flask app
-app = Flask(__name__)
 
 # Initialize MediaPipe Pose
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose(static_image_mode=True, model_complexity=2, min_detection_confidence=0.5)
 mp_drawing = mp.solutions.drawing_utils
-
 
 def detect_keypoints(image):
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -44,11 +44,10 @@ def detect_keypoints(image):
         left_hip = np.array(keypoints['left_hip'])
         right_hip = np.array(keypoints['right_hip'])
         asis = tuple(((left_hip + right_hip) / 2).astype(int))
-        asis = (asis[0], asis[1] - int(0.1 * (right_hip[1] - left_hip[1])))  # Adjust Y coordinate
+        asis = (asis[0], asis[1] - int(0.1 * (right_hip[1] - left_hip[1])))  # Adjust Y coordinate slightly upward
         keypoints['asis'] = asis
 
     return keypoints
-
 
 def calculate_angle(a, b, c):
     ba = np.array(a) - np.array(b)
@@ -57,7 +56,6 @@ def calculate_angle(a, b, c):
     cosine_angle = np.clip(cosine_angle, -1.0, 1.0)  # Clamp to avoid numerical issues
     angle = np.arccos(cosine_angle)
     return np.degrees(angle)
-
 
 def calculate_knee_deviation(hip, knee, ankle):
     # Calculate the vectors
@@ -86,7 +84,6 @@ def calculate_knee_deviation(hip, knee, ankle):
         return acute_knee_angle, 'Flexed'
     else:
         return acute_knee_angle, 'Hyperextended'
-
 
 def analyze_anterior_view(keypoints, image_shape):
     results = {}
@@ -176,7 +173,6 @@ def analyze_anterior_view(keypoints, image_shape):
             foot_angle = 180 - abs(foot_angle)
 
             if foot_angle > 30:
-                rotation = 'Externally rotated' if foot_angle > 0 else 'Internally rotated'
                 results[f'{side}_foot_rotation'] = ('Severe', foot_angle, 'Externally rotated')
             elif 18 < foot_angle <= 30:
                 results[f'{side}_foot_rotation'] = ('Mild', foot_angle, 'Externally rotated')
@@ -191,7 +187,6 @@ def analyze_anterior_view(keypoints, image_shape):
 
     return results
 
-
 def analyze_lateral_view(keypoints, image_shape):
     results = {}
     height, width = image_shape[:2]
@@ -205,7 +200,7 @@ def analyze_lateral_view(keypoints, image_shape):
         ear = np.array(keypoints['right_ear'])
         shoulder = np.array(keypoints['right_shoulder'])
         forward_head_distance = (ear[0] - shoulder[0]) / width * 100  # Convert to percentage of image width
-        if forward_head_distance > 5:  # Assuming 5% of image width as threshold
+        if forward_head_distance > 5:  # Assuming 5% of image width as threshold (adjust as needed)
             results['forward_head'] = ('Severe', forward_head_distance, 'Forward')
         elif forward_head_distance > 2:
             results['forward_head'] = ('Mild', forward_head_distance, 'Forward')
@@ -275,7 +270,6 @@ def analyze_lateral_view(keypoints, image_shape):
 
     return results
 
-
 def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
     annotated_image = image.copy()
     height, width, _ = annotated_image.shape
@@ -341,11 +335,7 @@ def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
 
     return annotated_image
 
-
-def generate_report(anterior_results, lateral_results, anterior_image_path, lateral_image_path):
-    output_dir = 'reports'
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = os.path.join(output_dir, f"posture_analysis_report_{timestamp}.pdf")
+def generate_report(anterior_results, lateral_results, anterior_image_path, lateral_image_path, output_path):
     doc = SimpleDocTemplate(output_path, pagesize=letter, topMargin=0.5 * inch, bottomMargin=0.5 * inch,
                             leftMargin=2.5 * cm, rightMargin=0.5 * inch)
     styles = getSampleStyleSheet()
@@ -358,7 +348,7 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     styles.add(ParagraphStyle(name='CustomHeading2', parent=styles['Heading2'], fontSize=12, textColor=colors.darkgreen,
                               spaceAfter=6))
     styles.add(ParagraphStyle(name='CustomHeading3', parent=styles['Heading3'], fontSize=10, textColor=colors.black,
-                              spaceBefore=6, spaceAfter=3, alignment=0))
+                              spaceBefore=6, spaceAfter=3, bold=True))
 
     # Background and frame
     background_color = colors.Color(1, 0.9, 0.8)  # Light orange
@@ -414,26 +404,19 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
 
                 if key == 'pelvic_tilt' and title == "Lateral View Analysis":
                     data.append([Paragraph(
-                        f"<font color='black'>{key.replace('_', ' ').title()}:</font> "
-                        f"<font color='{color}'><b>{status}</b></font> - "
-                        f"<font color='darkblue'>{direction}</font>",
+                        f"<font color='black'>{key.replace('_', ' ').title()}:</font> <font color='red'><b>{status}</b></font> - {direction}",
                         styles['CustomBodyText'])])
                 elif key == 'forward_head':
                     data.append([Paragraph(
-                        f"<font color='black'>{key.replace('_', ' ').title()}:</font> "
-                        f"<font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - "
-                        f"<font color='darkblue'>{direction}</font>",
+                        f"<font color='black'>{key.replace('_', ' ').title()}:</font> <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='darkblue'>{direction}</font>",
                         styles['CustomBodyText'])])
                 elif key == 'knee_angle':
                     data.append([Paragraph(
-                        f"Knee Angle: <font color='{color}'><b>{status}</b></font> "
-                        f"({measurement:.1f}°) - <font color='{direction_color}'>{direction}</font>",
+                        f"Knee Angle: <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='{direction_color}'>{direction}</font>",
                         styles['CustomBodyText'])])
                 else:
                     data.append([Paragraph(
-                        f"<font color='black'>{key.replace('_', ' ').title()}:</font> "
-                        f"<font color='{color}'><b>{status}</b></font> "
-                        f"({measurement:.1f}°) - <font color='{direction_color}'>{direction}</font>",
+                        f"<font color='black'>{key.replace('_', ' ').title()}:</font> <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='{direction_color}'>{direction}</font>",
                         styles['CustomBodyText'])])
             else:
                 logging.warning(f"Unexpected format for key {key}: {value}")
@@ -550,9 +533,6 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     except Exception as e:
         logging.error(f"Error reading Intervention.txt: {str(e)}")
 
-    def key_to_title(key):
-        return ' '.join(word.capitalize() for word in key.replace('-', '_').split('_'))
-
     # Add exercises for detected issues
     for i, (issue, _) in enumerate(all_issues):
         issue_title = issue.split(':')[0].strip()
@@ -581,7 +561,6 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
 
     # General recommendations
     story.append(Paragraph("General Recommendations", styles['CustomHeading2']))
-
     general_recs = exercises.get('General Recommendations', [])
     if general_recs:
         for rec in general_recs:
@@ -589,76 +568,73 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     else:
         story.append(Paragraph("No general recommendations found.", styles['CustomBodyText']))
 
-    # Build the PDF with custom background and frames
-    def add_background_and_frames(canvas_obj, doc_obj):
-        canvas_obj.saveState()
-        canvas_obj.setFillColor(background_color)
-        canvas_obj.rect(0, 0, doc_obj.pagesize[0], doc_obj.pagesize[1], fill=True, stroke=False)
-        canvas_obj.setFillColor(frame_color)
-        canvas_obj.roundRect(0.25 * inch, 0.25 * inch, doc_obj.pagesize[0] - 0.5 * inch,
-                             doc_obj.pagesize[1] - 0.5 * inch, 10, fill=True, stroke=False)
-        canvas_obj.setFont('Helvetica', 9)
-        canvas_obj.drawRightString(7.5 * inch, 0.75 * inch, f"Page {doc_obj.page}")
-        canvas_obj.restoreState()
+        # Build the PDF with custom background and frames
+        def add_background_and_frames(canvas_obj, doc_obj):
+            canvas_obj.saveState()
+            canvas_obj.setFillColor(background_color)
+            canvas_obj.rect(0, 0, doc_obj.pagesize[0], doc_obj.pagesize[1], fill=True, stroke=False)
+            canvas_obj.setFillColor(frame_color)
+            canvas_obj.roundRect(0.25 * inch, 0.25 * inch, doc_obj.pagesize[0] - 0.5 * inch,
+                                 doc_obj.pagesize[1] - 0.5 * inch, 10, fill=True, stroke=False)
+            canvas_obj.setFont('Helvetica', 9)
+            canvas_obj.drawRightString(7.5 * inch, 0.75 * inch, f"Page {doc_obj.page}")
+            canvas_obj.restoreState()
 
-    doc.build(story, onFirstPage=add_background_and_frames, onLaterPages=add_background_and_frames)
-    logging.info(f"Report generated: {output_path}")
+        doc.build(story, onFirstPage=add_background_and_frames, onLaterPages=add_background_and_frames)
+        logging.info(f"Report generated: {output_path}")
 
+    def key_to_title(key):
+        return ' '.join(word.capitalize() for word in key.replace('-', '_').split('_'))
 
-def key_to_title(key):
-    return ' '.join(word.capitalize() for word in key.replace('-', '_').split('_'))
+    @app.route('/', methods=['GET', 'POST'])
+    def index():
+        if request.method == 'POST':
+            anterior_file = request.files['anterior']
+            lateral_file = request.files['lateral']
 
+            if anterior_file and lateral_file:
+                # Save uploaded files temporarily
+                anterior_path = tempfile.mktemp(suffix='.jpg')
+                lateral_path = tempfile.mktemp(suffix='.jpg')
+                anterior_file.save(anterior_path)
+                lateral_file.save(lateral_path)
 
-@app.route('/')
-def index():
-    return send_file('templates/index.html')
+                # Process images
+                anterior_image = cv2.imread(anterior_path)
+                lateral_image = cv2.imread(lateral_path)
 
+                anterior_keypoints = detect_keypoints(anterior_image)
+                lateral_keypoints = detect_keypoints(lateral_image)
 
-@app.route('/upload', methods=['POST'])
-def upload_files():
-    if 'anterior_image' not in request.files or 'lateral_image' not in request.files:
-        return jsonify({'error': 'You must upload both anterior and lateral images'}), 400
+                anterior_results = analyze_anterior_view(anterior_keypoints, anterior_image.shape)
+                lateral_results = analyze_lateral_view(lateral_keypoints, lateral_image.shape)
 
-    # Save the uploaded files
-    anterior_image = request.files['anterior_image']
-    lateral_image = request.files['lateral_image']
+                annotated_anterior = draw_landmarks_and_angles(anterior_image, anterior_keypoints or {}, 'anterior',
+                                                               anterior_results)
+                annotated_lateral = draw_landmarks_and_angles(lateral_image, lateral_keypoints or {}, 'lateral',
+                                                              lateral_results)
 
-    anterior_image_path = 'uploads/anterior.jpg'
-    lateral_image_path = 'uploads/lateral.jpg'
+                # Save annotated images
+                annotated_anterior_path = tempfile.mktemp(suffix='.jpg')
+                annotated_lateral_path = tempfile.mktemp(suffix='.jpg')
+                cv2.imwrite(annotated_anterior_path, annotated_anterior)
+                cv2.imwrite(annotated_lateral_path, annotated_lateral)
 
-    anterior_image.save(anterior_image_path)
-    lateral_image.save(lateral_image_path)
+                # Generate report
+                report_path = tempfile.mktemp(suffix='.pdf')
+                generate_report(anterior_results, lateral_results, annotated_anterior_path, annotated_lateral_path,
+                                report_path)
 
-    # Load images using OpenCV
-    anterior_img = cv2.imread(anterior_image_path)
-    lateral_img = cv2.imread(lateral_image_path)
+                # Clean up temporary files
+                os.remove(anterior_path)
+                os.remove(lateral_path)
+                os.remove(annotated_anterior_path)
+                os.remove(annotated_lateral_path)
 
-    anterior_keypoints = detect_keypoints(anterior_img)
-    lateral_keypoints = detect_keypoints(lateral_img)
+                # Return the PDF file
+                return send_file(report_path, as_attachment=True, attachment_filename='posture_analysis_report.pdf')
 
-    if anterior_keypoints is None or lateral_keypoints is None:
-        return jsonify({'error': 'Failed to detect key points in one or both images'}), 400
+        return render_template('index.html')
 
-    anterior_results = analyze_anterior_view(anterior_keypoints, anterior_img.shape)
-    lateral_results = analyze_lateral_view(lateral_keypoints, lateral_img.shape)
-
-    # Generate report
-    generate_report(anterior_results, lateral_results, anterior_image_path, lateral_image_path)
-
-    # Find the latest report generated
-    report_files = os.listdir('reports')
-    report_files = [f for f in report_files if f.startswith('posture_analysis_report_') and f.endswith('.pdf')]
-    if not report_files:
-        return jsonify({'error': 'Report generation failed'}), 500
-
-    latest_report = max([os.path.join('reports', f) for f in report_files], key=os.path.getctime)
-
-    return send_file(latest_report, as_attachment=True)
-
-
-if __name__ == "__main__":
-    if not os.path.exists('uploads'):
-        os.makedirs('uploads')
-    if not os.path.exists('reports'):
-        os.makedirs('reports')
-    app.run(debug=True)
+    if __name__ == '__main__':
+        app.run(debug=True)

@@ -3,4 +3,4 @@ gunicorn==23.0.0
 opencv-python-headless==4.10.0.84
 mediapipe==0.10.15
 reportlab==4.2.5
-Pillow==11.0.0
+numpy==2.1.2
