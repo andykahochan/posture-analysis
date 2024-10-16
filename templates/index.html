@@ -1,80 +1,191 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
-    <title>Posture Analysis</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>姿勢分析應用</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <!-- Bootstrap CSS for styling and responsiveness -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome for icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f2f2f2;
-            padding: 20px;
-        }
-        .container {
-            background-color: white;
-            padding: 30px;
-            border-radius: 8px;
-            max-width: 600px;
-            margin: auto;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-        }
-        h2 {
+        /* Custom Styles */
+        .dropzone {
+            border: 2px dashed #007bff;
+            border-radius: 5px;
+            padding: 40px;
             text-align: center;
-            color: #333333;
+            color: #6c757d;
+            transition: background-color 0.3s, border-color 0.3s;
         }
-        input[type="file"] {
-            width: 100%;
-            padding: 12px;
-            margin: 8px 0 20px 0;
-            border: 1px solid #cccccc;
-            border-radius: 4px;
+
+        .dropzone.dragover {
+            background-color: #e9ecef;
+            border-color: #0056b3;
+            color: #0056b3;
         }
-        input[type="submit"] {
-            background-color: #4CAF50;
-            color: white;
-            padding: 14px 20px;
-            margin: auto;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            display: block;
-            width: 100%;
-            font-size: 16px;
+
+        .hidden {
+            display: none;
         }
-        input[type="submit"]:hover {
-            background-color: #45a049;
+
+        .progress {
+            height: 25px;
         }
-        .messages {
+
+        .progress-bar {
+            width: 0%;
+            transition: width 0.4s;
+        }
+
+        .logo {
+            max-width: 200px;
             margin-bottom: 20px;
         }
-        .messages .error {
-            color: red;
+
+        .btn-upload {
+            margin-top: 10px;
         }
-        .messages .success {
-            color: green;
+
+        .btn-submit {
+            margin-top: 20px;
+        }
+
+        @media (max-width: 576px) {
+            .logo {
+                max-width: 150px;
+            }
+
+            .dropzone {
+                padding: 20px;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h2>Posture Analysis</h2>
-        {% with messages = get_flashed_messages() %}
-            {% if messages %}
-                <div class="messages">
-                    {% for message in messages %}
-                        <p class="error">{{ message }}</p>
-                    {% endfor %}
-                </div>
+    <div class="container mt-5 mb-5">
+        <div class="text-center">
+            {% if logo and logo != '' %}
+                <img src="{{ url_for('static', filename=logo) }}" alt="Logo" class="logo img-fluid">
             {% endif %}
+            <h1 class="mb-4">姿勢分析應用</h1>
+        </div>
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="alert alert-warning alert-dismissible fade show" role="alert">
+              {% for message in messages %}
+                <p>{{ message }}</p>
+              {% endfor %}
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="關閉"></button>
+            </div>
+          {% endif %}
         {% endwith %}
-        <form method="POST" enctype="multipart/form-data">
-            <label for="anterior_image">Upload Anterior View Image:</label>
-            <input type="file" name="anterior_image" id="anterior_image" accept=".png, .jpg, .jpeg" required>
-
-            <label for="lateral_image">Upload Lateral View Image:</label>
-            <input type="file" name="lateral_image" id="lateral_image" accept=".png, .jpg, .jpeg" required>
-
-            <input type="submit" value="Analyze and Download Report">
+        <form method="POST" enctype="multipart/form-data" id="upload-form">
+            <div class="row">
+                <div class="col-md-6 mb-4">
+                    <label for="anterior_image" class="form-label">上視圖圖像</label>
+                    <div class="dropzone" id="anterior-dropzone">
+                        <i class="fas fa-cloud-upload-alt fa-3x"></i>
+                        <p>拖放上視圖圖像到這裡或點擊選擇</p>
+                        <input type="file" name="anterior_image" id="anterior_image" accept="image/*" class="form-control hidden">
+                    </div>
+                    <img id="anterior-preview" src="#" alt="上視圖預覽" class="img-fluid mt-3 hidden">
+                </div>
+                <div class="col-md-6 mb-4">
+                    <label for="lateral_image" class="form-label">側視圖圖像</label>
+                    <div class="dropzone" id="lateral-dropzone">
+                        <i class="fas fa-cloud-upload-alt fa-3x"></i>
+                        <p>拖放側視圖圖像到這裡或點擊選擇</p>
+                        <input type="file" name="lateral_image" id="lateral_image" accept="image/*" class="form-control hidden">
+                    </div>
+                    <img id="lateral-preview" src="#" alt="側視圖預覽" class="img-fluid mt-3 hidden">
+                </div>
+            </div>
+            <div class="progress mb-3 hidden" id="upload-progress">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"></div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-submit w-100" id="submit-button">提交分析</button>
         </form>
     </div>
+
+    <!-- Bootstrap JS and dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Font Awesome JS for icons -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <script>
+        const anteriorDropzone = document.getElementById('anterior-dropzone');
+        const lateralDropzone = document.getElementById('lateral-dropzone');
+        const anteriorInput = document.getElementById('anterior_image');
+        const lateralInput = document.getElementById('lateral_image');
+        const anteriorPreview = document.getElementById('anterior-preview');
+        const lateralPreview = document.getElementById('lateral-preview');
+        const uploadProgress = document.getElementById('upload-progress');
+        const progressBar = uploadProgress.querySelector('.progress-bar');
+        const submitButton = document.getElementById('submit-button');
+
+        // Function to handle drag and drop
+        function setupDropzone(dropzone, input, preview) {
+            dropzone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzone.classList.add('dragover');
+            });
+
+            dropzone.addEventListener('dragleave', () => {
+                dropzone.classList.remove('dragover');
+            });
+
+            dropzone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    input.files = files;
+                    preview.src = URL.createObjectURL(files[0]);
+                    preview.classList.remove('hidden');
+                }
+            });
+
+            dropzone.addEventListener('click', () => {
+                input.click();
+            });
+
+            input.addEventListener('change', () => {
+                if (input.files && input.files[0]) {
+                    preview.src = URL.createObjectURL(input.files[0]);
+                    preview.classList.remove('hidden');
+                }
+            });
+        }
+
+        setupDropzone(anteriorDropzone, anteriorInput, anteriorPreview);
+        setupDropzone(lateralDropzone, lateralInput, lateralPreview);
+
+        // Handle form submission
+        const form = document.getElementById('upload-form');
+        form.addEventListener('submit', function(event) {
+            const filesSelected = anteriorInput.files.length > 0 && lateralInput.files.length > 0;
+            if (!filesSelected) {
+                event.preventDefault();
+                alert('請上傳兩張圖像（上視圖和側視圖）。');
+                return;
+            }
+
+            // Show progress bar
+            uploadProgress.classList.remove('hidden');
+            progressBar.style.width = '0%';
+
+            // Simulate progress
+            let progress = 0;
+            const interval = setInterval(() => {
+                if (progress >= 100) {
+                    clearInterval(interval);
+                } else {
+                    progress += 10;
+                    progressBar.style.width = progress + '%';
+                }
+            }, 200);
+        });
+    </script>
 </body>
 </html>
