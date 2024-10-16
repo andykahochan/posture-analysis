@@ -4,26 +4,16 @@ import numpy as np
 import mediapipe as mp
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Image as RLImage,
-                                Table, TableStyle)
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch, cm
 from datetime import datetime
 import logging
-from flask import Flask, render_template, request, send_from_directory, redirect, url_for, flash
-from werkzeug.utils import secure_filename
+from flask import Flask, render_template, request, send_file
 import tempfile
+import base64
 
-# Configuration
-UPLOAD_FOLDER = tempfile.gettempdir()
-REPORT_FOLDER = tempfile.gettempdir()
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
-LOGO_PATH = 'logo.jpg'  # Ensure this file exists in the project root
-
-# Initialize Flask app
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.secret_key = 'your_secret_key'  # Replace with a secure key in production
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -32,12 +22,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose(static_image_mode=True, model_complexity=2, min_detection_confidence=0.5)
 mp_drawing = mp.solutions.drawing_utils
-
-
-def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
 
 def detect_keypoints(image):
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -65,7 +49,6 @@ def detect_keypoints(image):
 
     return keypoints
 
-
 def calculate_angle(a, b, c):
     ba = np.array(a) - np.array(b)
     bc = np.array(c) - np.array(b)
@@ -73,7 +56,6 @@ def calculate_angle(a, b, c):
     cosine_angle = np.clip(cosine_angle, -1.0, 1.0)  # Clamp to avoid numerical issues
     angle = np.arccos(cosine_angle)
     return np.degrees(angle)
-
 
 def calculate_knee_deviation(hip, knee, ankle):
     # Calculate the vectors
@@ -102,7 +84,6 @@ def calculate_knee_deviation(hip, knee, ankle):
         return acute_knee_angle, 'Flexed'
     else:
         return acute_knee_angle, 'Hyperextended'
-
 
 def analyze_anterior_view(keypoints, image_shape):
     results = {}
@@ -206,7 +187,6 @@ def analyze_anterior_view(keypoints, image_shape):
 
     return results
 
-
 def analyze_lateral_view(keypoints, image_shape):
     results = {}
     height, width = image_shape[:2]
@@ -290,7 +270,6 @@ def analyze_lateral_view(keypoints, image_shape):
 
     return results
 
-
 def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
     annotated_image = image.copy()
     height, width, _ = annotated_image.shape
@@ -356,11 +335,7 @@ def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
 
     return annotated_image
 
-
-def generate_report(anterior_results, lateral_results, anterior_image_path, lateral_image_path):
-    output_dir = REPORT_FOLDER
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = os.path.join(output_dir, f"posture_analysis_report_{timestamp}.pdf")
+def generate_report(anterior_results, lateral_results, anterior_image_path, lateral_image_path, output_path):
     doc = SimpleDocTemplate(output_path, pagesize=letter, topMargin=0.5 * inch, bottomMargin=0.5 * inch,
                             leftMargin=2.5 * cm, rightMargin=0.5 * inch)
     styles = getSampleStyleSheet()
@@ -373,19 +348,20 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     styles.add(ParagraphStyle(name='CustomHeading2', parent=styles['Heading2'], fontSize=12, textColor=colors.darkgreen,
                               spaceAfter=6))
     styles.add(ParagraphStyle(name='CustomHeading3', parent=styles['Heading3'], fontSize=10, textColor=colors.black,
-                              spaceBefore=6, spaceAfter=3, fontName='Helvetica-Bold'))
+                              spaceBefore=6, spaceAfter=3, bold=True))
 
     # Background and frame
     background_color = colors.Color(1, 0.9, 0.8)  # Light orange
     frame_color = colors.white
 
     # Add logo
-    if os.path.exists(LOGO_PATH):
-        logo = RLImage(LOGO_PATH, width=6 * inch, height=0.5 * inch)
+    logo_path = "logo.jpg"
+    if os.path.exists(logo_path):
+        logo = Image(logo_path, width=6 * inch, height=0.5 * inch, kind='proportional')
         story.append(logo)
         story.append(Spacer(1, 6))
     else:
-        logging.warning(f"Logo file not found at path: {LOGO_PATH}")
+        logging.warning(f"Logo file not found at path: {logo_path}")
 
     # Title
     story.append(Paragraph("Posture Analysis Report", styles['CustomHeading1']))
@@ -398,8 +374,8 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     # Images
     img_width = 3 * inch
     img_height = 4 * inch
-    story.append(Table([[RLImage(anterior_image_path, width=img_width, height=img_height),
-                         RLImage(lateral_image_path, width=img_width, height=img_height)]],
+    story.append(Table([[Image(anterior_image_path, width=img_width, height=img_height, kind='proportional'),
+                         Image(lateral_image_path, width=img_width, height=img_height, kind='proportional')]],
                        colWidths=[3.5 * inch, 3.5 * inch],
                        hAlign='CENTER'))
     story.append(Spacer(1, 6))
@@ -571,7 +547,7 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
 
             image_path = os.path.join('Exercise', issue_title, f"{idx}.jpg")
             if os.path.exists(image_path):
-                story.append(RLImage(image_path, width=3 * cm, height=3 * cm))
+                story.append(Image(image_path, width=3 * cm, height=3 * cm, kind='proportional'))
                 logging.info(f"Found image for {issue_title}: {image_path}")
             else:
                 story.append(Paragraph("Exercise image not found.", styles['CustomBodyText']))
@@ -592,102 +568,73 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     else:
         story.append(Paragraph("No general recommendations found.", styles['CustomBodyText']))
 
-    # Build the PDF with custom background and frames
-    def add_background_and_frames(canvas_obj, doc_obj):
-        canvas_obj.saveState()
-        canvas_obj.setFillColor(background_color)
-        canvas_obj.rect(0, 0, doc_obj.pagesize[0], doc_obj.pagesize[1], fill=True, stroke=False)
-        canvas_obj.setFillColor(frame_color)
-        canvas_obj.roundRect(0.25 * inch, 0.25 * inch, doc_obj.pagesize[0] - 0.5 * inch,
-                             doc_obj.pagesize[1] - 0.5 * inch, 10, fill=True, stroke=False)
-        canvas_obj.setFont('Helvetica', 9)
-        canvas_obj.drawRightString(7.5 * inch, 0.75 * inch, f"Page {doc_obj.page}")
-        canvas_obj.restoreState()
+        # Build the PDF with custom background and frames
+        def add_background_and_frames(canvas_obj, doc_obj):
+            canvas_obj.saveState()
+            canvas_obj.setFillColor(background_color)
+            canvas_obj.rect(0, 0, doc_obj.pagesize[0], doc_obj.pagesize[1], fill=True, stroke=False)
+            canvas_obj.setFillColor(frame_color)
+            canvas_obj.roundRect(0.25 * inch, 0.25 * inch, doc_obj.pagesize[0] - 0.5 * inch,
+                                 doc_obj.pagesize[1] - 0.5 * inch, 10, fill=True, stroke=False)
+            canvas_obj.setFont('Helvetica', 9)
+            canvas_obj.drawRightString(7.5 * inch, 0.75 * inch, f"Page {doc_obj.page}")
+            canvas_obj.restoreState()
 
-    doc.build(story, onFirstPage=add_background_and_frames, onLaterPages=add_background_and_frames)
-    logging.info(f"Report generated: {output_path}")
-    return output_path
+        doc.build(story, onFirstPage=add_background_and_frames, onLaterPages=add_background_and_frames)
+        logging.info(f"Report generated: {output_path}")
 
+    def key_to_title(key):
+        return ' '.join(word.capitalize() for word in key.replace('-', '_').split('_'))
 
-def key_to_title(key):
-    return ' '.join(word.capitalize() for word in key.replace('-', '_').split('_'))
+    @app.route('/', methods=['GET', 'POST'])
+    def index():
+        if request.method == 'POST':
+            anterior_file = request.files['anterior']
+            lateral_file = request.files['lateral']
 
+            if anterior_file and lateral_file:
+                # Save uploaded files temporarily
+                anterior_path = tempfile.mktemp(suffix='.jpg')
+                lateral_path = tempfile.mktemp(suffix='.jpg')
+                anterior_file.save(anterior_path)
+                lateral_file.save(lateral_path)
 
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    if request.method == 'POST':
-        # Check if the post request has the files
-        if 'anterior_image' not in request.files or 'lateral_image' not in request.files:
-            flash('No file part')
-            return redirect(request.url)
+                # Process images
+                anterior_image = cv2.imread(anterior_path)
+                lateral_image = cv2.imread(lateral_path)
 
-        anterior_file = request.files['anterior_image']
-        lateral_file = request.files['lateral_image']
+                anterior_keypoints = detect_keypoints(anterior_image)
+                lateral_keypoints = detect_keypoints(lateral_image)
 
-        # If user does not select file, browser may submit empty part
-        if anterior_file.filename == '' or lateral_file.filename == '':
-            flash('No selected file')
-            return redirect(request.url)
+                anterior_results = analyze_anterior_view(anterior_keypoints, anterior_image.shape)
+                lateral_results = analyze_lateral_view(lateral_keypoints, lateral_image.shape)
 
-        if anterior_file and allowed_file(anterior_file.filename) and lateral_file and allowed_file(lateral_file.filename):
-            anterior_filename = secure_filename(anterior_file.filename)
-            lateral_filename = secure_filename(lateral_file.filename)
-            anterior_path = os.path.join(app.config['UPLOAD_FOLDER'], anterior_filename)
-            lateral_path = os.path.join(app.config['UPLOAD_FOLDER'], lateral_filename)
-            anterior_file.save(anterior_path)
-            lateral_file.save(lateral_path)
-            logging.info(f"Uploaded anterior image: {anterior_path}")
-            logging.info(f"Uploaded lateral image: {lateral_path}")
+                annotated_anterior = draw_landmarks_and_angles(anterior_image, anterior_keypoints or {}, 'anterior',
+                                                               anterior_results)
+                annotated_lateral = draw_landmarks_and_angles(lateral_image, lateral_keypoints or {}, 'lateral',
+                                                              lateral_results)
 
-            # Process images
-            anterior_image = cv2.imread(anterior_path)
-            lateral_image = cv2.imread(lateral_path)
+                # Save annotated images
+                annotated_anterior_path = tempfile.mktemp(suffix='.jpg')
+                annotated_lateral_path = tempfile.mktemp(suffix='.jpg')
+                cv2.imwrite(annotated_anterior_path, annotated_anterior)
+                cv2.imwrite(annotated_lateral_path, annotated_lateral)
 
-            if anterior_image is None or lateral_image is None:
-                flash("Error reading images.")
-                return redirect(request.url)
+                # Generate report
+                report_path = tempfile.mktemp(suffix='.pdf')
+                generate_report(anterior_results, lateral_results, annotated_anterior_path, annotated_lateral_path,
+                                report_path)
 
-            anterior_keypoints = detect_keypoints(anterior_image)
-            lateral_keypoints = detect_keypoints(lateral_image)
+                # Clean up temporary files
+                os.remove(anterior_path)
+                os.remove(lateral_path)
+                os.remove(annotated_anterior_path)
+                os.remove(annotated_lateral_path)
 
-            anterior_results = analyze_anterior_view(anterior_keypoints, anterior_image.shape)
-            lateral_results = analyze_lateral_view(lateral_keypoints, lateral_image.shape)
+                # Return the PDF file
+                return send_file(report_path, as_attachment=True, attachment_filename='posture_analysis_report.pdf')
 
-            annotated_anterior = draw_landmarks_and_angles(anterior_image, anterior_keypoints or {}, 'anterior',
-                                                           anterior_results)
-            annotated_lateral = draw_landmarks_and_angles(lateral_image, lateral_keypoints or {}, 'lateral', lateral_results)
+        return render_template('index.html')
 
-            # Generate new filenames with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            annotated_anterior_filename = f'annotated_anterior_{timestamp}.jpg'
-            annotated_lateral_filename = f'annotated_lateral_{timestamp}.jpg'
-            annotated_anterior_path = os.path.join(app.config['UPLOAD_FOLDER'], annotated_anterior_filename)
-            annotated_lateral_path = os.path.join(app.config['UPLOAD_FOLDER'], annotated_lateral_filename)
-
-            cv2.imwrite(annotated_anterior_path, annotated_anterior)
-            cv2.imwrite(annotated_lateral_path, annotated_lateral)
-
-            logging.info(f"Annotated anterior image saved: {annotated_anterior_path}")
-            logging.info(f"Annotated lateral image saved: {annotated_lateral_path}")
-
-            try:
-                report_path = generate_report(anterior_results, lateral_results, annotated_anterior_path, annotated_lateral_path)
-                report_filename = os.path.basename(report_path)
-                return redirect(url_for('download_report', filename=report_filename))
-            except Exception as e:
-                logging.error(f"An error occurred while generating the report: {str(e)}")
-                flash("An error occurred while generating the report.")
-                return redirect(request.url)
-        else:
-            flash('Allowed file types are png, jpg, jpeg')
-            return redirect(request.url)
-    return render_template('index.html')
-
-
-@app.route('/download/<filename>')
-def download_report(filename):
-    return send_from_directory(REPORT_FOLDER, filename, as_attachment=True)
-
-
-if __name__ == "__main__":
-    app.run(debug=True)
+    if __name__ == '__main__':
+        app.run(debug=True)
