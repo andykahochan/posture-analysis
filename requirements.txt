@@ -1,5 +1,4 @@
 Flask
 opencv-python-headless
 mediapipe
-reportlab
-Werkzeug
+
