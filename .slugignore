@@ -1,4 +1,32 @@
+# Ignore Python cache files
 __pycache__/
 *.pyc
-temp/
-.DS_Store
+
+# Ignore local environment variables
+.env
+
+# Ignore test directories
+/test
+/tests
+/spec
+
+# Ignore documentation and other large files
+*.md
+*.pdf
+*.psd
+
+# Ignore uploads and reports directories (they may contain large user-generated files)
+/uploads
+/reports
+
+# Ignore version control directories
+.git/
+.gitignore
+
+# Ignore virtual environment directories
+venv/
+
+# Ignore logs and temporary files
+*.log
+/tmp
+/logs
