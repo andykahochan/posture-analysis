@@ -2,6 +2,7 @@ import os
 import cv2
 import numpy as np
 import mediapipe as mp
+from PIL import Image
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import (
@@ -19,7 +20,6 @@ import logging
 from flask import Flask, render_template, request, send_file, flash, redirect, url_for
 import tempfile
 from io import BytesIO
-from PIL import Image
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -36,51 +36,43 @@ mp_drawing = mp.solutions.drawing_utils
 
 # Helper Functions
 
-def compress_image(file_stream, max_size_kb=30):
+def compress_image(input_image, max_size_kb=30):
     """
-    Compresses an image to ensure it's below the specified size in KB.
-    Returns the compressed image as a NumPy array in BGR format.
+    Compress the image to be under max_size_kb.
+    Returns a BytesIO object of the compressed image.
     """
     try:
-        image = Image.open(file_stream)
-
-        # Convert to RGB if necessary
-        if image.mode in ('RGBA', 'LA'):
-            background = Image.new(image.mode[:-1], image.size, (255, 255, 255))
-            background.paste(image, image.split()[-1])
-            image = background
-        elif image.mode != 'RGB':
-            image = image.convert('RGB')
+        img = Image.open(input_image)
+        img_format = img.format  # Keep the original format
 
         # Initialize variables
-        quality = 95
-        buffer = BytesIO()
+        quality = 85
+        resized = False
 
-        # Compress to JPEG with decreasing quality until size <= max_size_kb
-        while quality > 10:
-            buffer.seek(0)
-            buffer.truncate(0)
-            image.save(buffer, format='JPEG', quality=quality)
-            size_kb = buffer.tell() / 1024
-            if size_kb <= max_size_kb:
+        img_io = BytesIO()
+
+        while True:
+            img_io.seek(0)
+            if img_format == 'JPEG':
+                img.save(img_io, format=img_format, quality=quality, optimize=True)
+            else:
+                img.save(img_io, format=img_format, optimize=True)
+            size = img_io.tell()
+
+            if size <= max_size_kb * 1024 or quality <= 20:
                 break
-            quality -= 5
 
-        # If still too large, resize the image
-        if size_kb > max_size_kb:
-            width, height = image.size
-            while size_kb > max_size_kb and width > 100 and height > 100:
-                width = int(width * 0.9)
-                height = int(height * 0.9)
-                image = image.resize((width, height), Image.ANTIALIAS)
-                buffer.seek(0)
-                buffer.truncate(0)
-                image.save(buffer, format='JPEG', quality=quality)
-                size_kb = buffer.tell() / 1024
+            if img_format == 'JPEG':
+                quality -= 5
+            elif not resized:
+                # Resize the image to reduce size
+                img = img.resize((int(img.width * 0.9), int(img.height * 0.9)), Image.LANCZOS)
+                resized = True
+            else:
+                break  # Cannot compress further
 
-        buffer.seek(0)
-        compressed_image = Image.open(buffer)
-        return cv2.cvtColor(np.array(compressed_image), cv2.COLOR_RGB2BGR)
+        img_io.seek(0)
+        return img_io
     except Exception as e:
         logging.error(f"Error compressing image: {str(e)}")
         return None
@@ -160,11 +152,11 @@ def analyze_anterior_view(keypoints, image_shape):
         head_angle = np.degrees(np.arctan2(right_eye[1] - left_eye[1], right_eye[0] - left_eye[0]))
         head_tilt = abs(180 - abs(head_angle))
         if head_tilt > 3:
-            direction = 'Left' if head_angle < 0 else 'Right'
+            direction = 'Right' if head_angle > 0 else 'Left'
             key = f'Head Tilt - {direction}'
             results[key] = ('Severe', head_tilt, direction)
         elif 2 <= head_tilt <= 3:
-            direction = 'Left' if head_angle < 0 else 'Right'
+            direction = 'Right' if head_angle > 0 else 'Left'
             key = f'Head Tilt - {direction}'
             results[key] = ('Mild', head_tilt, direction)
         else:
@@ -180,11 +172,11 @@ def analyze_anterior_view(keypoints, image_shape):
         shoulder_angle = np.degrees(np.arctan2(right_shoulder[1] - left_shoulder[1], right_shoulder[0] - left_shoulder[0]))
         shoulder_tilt = 180 - abs(shoulder_angle)
         if shoulder_tilt > 3:
-            direction = 'Left' if shoulder_angle < 0 else 'Right'
+            direction = 'Right' if shoulder_angle > 0 else 'Left'
             key = f'Shoulder Tilt - {direction}'
             results[key] = ('Severe', shoulder_tilt, direction)
         elif 2 <= shoulder_tilt <= 3:
-            direction = 'Left' if shoulder_angle < 0 else 'Right'
+            direction = 'Right' if shoulder_angle > 0 else 'Left'
             key = f'Shoulder Tilt - {direction}'
             results[key] = ('Mild', shoulder_tilt, direction)
         else:
@@ -200,11 +192,11 @@ def analyze_anterior_view(keypoints, image_shape):
         pelvic_angle = np.degrees(np.arctan2(right_hip[1] - left_hip[1], right_hip[0] - left_hip[0]))
         pelvic_tilt = 180 - abs(pelvic_angle)
         if pelvic_tilt > 3:
-            direction = 'Left' if pelvic_angle < 0 else 'Right'
+            direction = 'Right' if pelvic_angle > 0 else 'Left'
             key = f'Pelvic Tilt - {direction}'
             results[key] = ('Severe', pelvic_tilt, direction)
         elif 2 <= pelvic_tilt <= 3:
-            direction = 'Left' if pelvic_angle < 0 else 'Right'
+            direction = 'Right' if pelvic_angle > 0 else 'Left'
             key = f'Pelvic Tilt - {direction}'
             results[key] = ('Mild', pelvic_tilt, direction)
         else:
@@ -225,7 +217,7 @@ def analyze_anterior_view(keypoints, image_shape):
             hip_knee_vector = knee - hip
             cross_product = np.cross(hip_ankle_vector[:2], hip_knee_vector[:2])
             angle = abs(calculate_angle(hip, knee, ankle) - 180)
-            knee_deviation = 'Valgus' if (cross_product > 0 and side == 'Left') else 'Varus'
+            knee_deviation = 'Valgus' if (cross_product > 0 and side == 'Left') or (cross_product < 0 and side == 'Right') else 'Varus'
 
             key = f'Knee - {knee_deviation}'
             if angle > 15:
@@ -286,7 +278,7 @@ def analyze_lateral_view(keypoints, image_shape):
         ear = np.array(keypoints['right_ear'])
         shoulder = np.array(keypoints['right_shoulder'])
         forward_head_distance = (ear[0] - shoulder[0]) / width * 100  # Convert to percentage of image width
-        if forward_head_distance > 5:  # Threshold can be adjusted
+        if forward_head_distance > 5:  # Assuming 5% of image width as threshold (adjust as needed)
             key = 'Forward Head'
             results[key] = ('Severe', forward_head_distance, 'Forward')
         elif forward_head_distance > 2:
@@ -381,33 +373,33 @@ def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
 
     # Draw keypoints
     for part, point in keypoints.items():
-        draw_point(point, (0, 255, 0))  # Green points
+        draw_point(point, (0, 255, 0))
 
     # Define connections and draw them
     if view == 'anterior':
         connections = [
-            ('left_eye', 'right_eye'),
-            ('left_shoulder', 'right_shoulder'),
-            ('left_hip', 'right_hip'),
-            ('left_shoulder', 'left_elbow'),
-            ('left_elbow', 'left_wrist'),
-            ('right_shoulder', 'right_elbow'),
-            ('right_elbow', 'right_wrist'),
-            ('left_shoulder', 'left_hip'),
-            ('right_shoulder', 'right_hip'),
-            ('left_hip', 'left_knee'),
-            ('right_hip', 'right_knee'),
-            ('left_knee', 'left_ankle'),
-            ('right_knee', 'right_ankle'),
-            ('left_ankle', 'left_foot_index'),
-            ('right_ankle', 'right_foot_index')
+            ('left_eye', 'right_eye', 'Head Tilt - Left', 'Head Tilt - Right'),
+            ('left_shoulder', 'right_shoulder', 'Shoulder Tilt - Left', 'Shoulder Tilt - Right'),
+            ('left_hip', 'right_hip', 'Pelvic Tilt - Left', 'Pelvic Tilt - Right'),
+            ('left_shoulder', 'left_elbow', None, None),
+            ('left_elbow', 'left_wrist', None, None),
+            ('right_shoulder', 'right_elbow', None, None),
+            ('right_elbow', 'right_wrist', None, None),
+            ('left_shoulder', 'left_hip', None, None),
+            ('right_shoulder', 'right_hip', None, None),
+            ('left_hip', 'left_knee', 'Knee - Valgus', 'Knee - Varus'),
+            ('right_hip', 'right_knee', 'Knee - Valgus', 'Knee - Varus'),
+            ('left_knee', 'left_ankle', 'Knee - Valgus', 'Knee - Varus'),
+            ('right_knee', 'right_ankle', 'Knee - Valgus', 'Knee - Varus'),
+            ('left_ankle', 'left_foot_index', 'Foot Rotation - Externally Rotated', 'Foot Rotation - Internally Rotated'),
+            ('right_ankle', 'right_foot_index', 'Foot Rotation - Externally Rotated', 'Foot Rotation - Internally Rotated')
         ]
     elif view == 'lateral':
         connections = [
-            ('right_ear', 'right_shoulder'),
-            ('right_shoulder', 'right_hip'),
-            ('right_hip', 'right_knee'),
-            ('right_knee', 'right_ankle')
+            ('right_ear', 'right_shoulder', 'Forward Head', None),
+            ('right_shoulder', 'right_hip', 'Round Shoulders', None),
+            ('right_hip', 'right_knee', 'Pelvic Tilt - Anterior', 'Pelvic Tilt - Posterior'),
+            ('right_knee', 'right_ankle', 'Knee Angle', None)
         ]
 
     # Determine if pelvic tilt is anterior or posterior in lateral view
@@ -420,27 +412,28 @@ def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
             highlight_hip_knee = True
 
     for connection in connections:
-        start, end = connection
+        start, end, key1, key2 = connection
         color = (0, 255, 0)  # Default green
-        severity = 'Normal'
+        if key1 and key1 in analysis_results:
+            status = analysis_results[key1][0]
+            if 'Severe' in status:
+                color = (0, 0, 255)  # Red if severe
+            elif 'Mild' in status:
+                color = (0, 165, 255)  # Orange if mild
+        elif key2 and key2 in analysis_results:
+            status = analysis_results[key2][0]
+            if 'Severe' in status:
+                color = (0, 0, 255)  # Red if severe
+            elif 'Mild' in status:
+                color = (0, 165, 255)  # Orange if mild
 
-        # Determine severity based on analysis_results
-        for key in analysis_results:
-            if key.startswith(start.replace('_', ' ').title()) and key.endswith(end.replace('_', ' ').title()):
-                status = analysis_results[key][0]
-                if 'Severe' in status:
-                    color = (0, 0, 255)  # Red
-                elif 'Mild' in status:
-                    color = (0, 165, 255)  # Orange
-                break
-            elif key in analysis_results and 'Pelvic Tilt' in key and highlight_hip_knee:
-                color = (0, 0, 255)  # Red
-                break
+        # For lateral view, if 'Knee Angle' is abnormal, highlight in red
+        if view == 'lateral' and highlight_hip_knee and (('Knee Angle' in key1) or ('Knee Angle' in key2)):
+            color = (0, 0, 255)
 
         if start in keypoints and end in keypoints:
             draw_line(keypoints[start], keypoints[end], color)
 
-    # For anterior view, draw mid lines
     if view == 'anterior':
         if ('left_shoulder' in keypoints and 'right_shoulder' in keypoints and
             'left_hip' in keypoints and 'right_hip' in keypoints):
@@ -448,15 +441,15 @@ def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
             mid_hip = tuple(((np.array(keypoints['left_hip']) + np.array(keypoints['right_hip'])) / 2).astype(int))
             if 'left_eye' in keypoints and 'right_eye' in keypoints:
                 mid_eye = tuple(((np.array(keypoints['left_eye']) + np.array(keypoints['right_eye'])) / 2).astype(int))
-                draw_line(mid_eye, mid_shoulder, (0, 255, 0))  # Green
-            draw_line(mid_shoulder, mid_hip, (0, 255, 0))  # Green
+                draw_line(mid_eye, mid_shoulder, (0, 255, 0))
+            draw_line(mid_shoulder, mid_hip, (0, 255, 0))
 
-    # For lateral view, if pelvic tilt is anterior or posterior, redraw hip-knee line in red
+    # For lateral view, if pelvic tilt is anterior or posterior, redraw the hip-knee line in red
     if view == 'lateral' and highlight_hip_knee:
         if 'right_hip' in keypoints and 'right_knee' in keypoints:
             hip = keypoints['right_hip']
             knee = keypoints['right_knee']
-            draw_line(hip, knee, (0, 0, 255))  # Red
+            draw_line(hip, knee, (0, 0, 255))  # Red color
 
     return annotated_image
 
@@ -489,11 +482,11 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
         logging.warning(f"Logo file not found at path: {logo_path}")
 
     # Title
-    story.append(Paragraph("Posture Analysis Report", styles['CustomHeading1']))
+    story.append(Paragraph("姿勢分析報告", styles['CustomHeading1']))
     story.append(Spacer(1, 6))
 
     # Date
-    story.append(Paragraph(f"Date: {datetime.now().strftime('%Y-%m-%d')}", styles['CustomBodyText']))
+    story.append(Paragraph(f"日期: {datetime.now().strftime('%Y-%m-%d')}", styles['CustomBodyText']))
     story.append(Spacer(1, 6))
 
     # Images
@@ -511,29 +504,34 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
         for key, value in results.items():
             if isinstance(value, tuple) and len(value) == 3:
                 status, measurement, direction = value
-                if status == 'Normal' and direction in ['Aligned', 'Neutral', 'Level', 'Centered']:
-                    continue  # Skip normal conditions
-
-                # Determine color based on status
-                if 'Severe' in status:
-                    color = 'red'
-                elif 'Mild' in status:
-                    color = 'darkorange'
+                condition = key  # e.g., 'Head Tilt - Left'
+                if 'Not detected' in status:
+                    content = f"{condition}: {status} - {direction}"
                 else:
-                    color = 'black'
+                    # Determine color based on status
+                    if 'Severe' in status:
+                        color = 'red'
+                        bold = 'bold'
+                    elif 'Mild' in status:
+                        color = 'darkorange'
+                        bold = 'bold'
+                    else:
+                        color = 'black'
+                        bold = 'normal'
 
-                # Determine color for direction
-                direction_color = 'black'
-                if 'Left' in direction or 'Varus' in direction or 'Externally Rotated' in key:
-                    direction_color = 'darkblue'
-                elif 'Right' in direction or 'Valgus' in direction or 'Internally Rotated' in key or 'Anterior' in key or 'Posterior' in key:
-                    direction_color = 'darkred'
+                    # Determine color for direction
+                    direction_color = 'black'
+                    if 'Left' in direction or 'Varus' in direction or 'Externally Rotated' in condition:
+                        direction_color = 'darkblue'
+                    elif 'Right' in direction or 'Valgus' in direction or 'Internally Rotated' in condition:
+                        direction_color = 'darkred'
+                    elif 'Anterior' in condition or 'Posterior' in condition:
+                        direction_color = 'darkred'
 
-                if key == 'Knee Angle':
-                    content = f"Knee Angle: <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='{direction_color}'>{direction}</font>"
-                else:
-                    content = f"{key}: <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='{direction_color}'>{direction}</font>"
-
+                    if key == 'Knee Angle':
+                        content = f"Knee Angle: <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='{direction_color}'>{direction}</font>"
+                    else:
+                        content = f"<font color='black'>{condition}:</font> <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='{direction_color}'>{direction}</font>"
                 data.append([Paragraph(content, styles['CustomBodyText'])])
             else:
                 logging.warning(f"Unexpected format for key {key}: {value}")
@@ -550,15 +548,15 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
         ]))
 
-    analysis_table = Table([[create_analysis_table("Anterior View Analysis", anterior_results),
-                             create_analysis_table("Lateral View Analysis", lateral_results)]],
+    analysis_table = Table([[create_analysis_table("上視圖分析", anterior_results),
+                             create_analysis_table("側視圖分析", lateral_results)]],
                            colWidths=[3.5 * inch, 3.5 * inch],
                            hAlign='CENTER')
     story.append(analysis_table)
     story.append(Spacer(1, 6))
 
     # Key issues
-    story.append(Paragraph("Key Postural Issues", styles['CustomHeading2']))
+    story.append(Paragraph("主要姿勢問題", styles['CustomHeading2']))
 
     def get_issue_order(issue):
         if 'pelvic tilt' in issue.lower():
@@ -574,14 +572,13 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
         return 4
 
     all_issues = []
-    for view, results in [("Anterior View", anterior_results), ("Lateral View", lateral_results)]:
+    for view, results in [("上視圖", anterior_results), ("側視圖", lateral_results)]:
         for key, value in results.items():
             if isinstance(value, tuple) and len(value) == 3:
                 status, measurement, direction = value
-                if status == 'Normal' and direction in ['Aligned', 'Neutral', 'Level', 'Centered']:
-                    continue  # Skip normal conditions
-                issue = key  # e.g., 'Head Tilt - Left'
-                all_issues.append((issue, measurement))
+                if 'Normal' not in status and 'Aligned' not in direction and 'Neutral' not in status:
+                    issue = key  # e.g., 'Head Tilt - Left'
+                    all_issues.append((issue, measurement))
             else:
                 logging.warning(f"Unexpected format for key {key}: {value}")
 
@@ -589,14 +586,16 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
 
     for i, (issue, _) in enumerate(all_issues, 1):
         # issue is like 'Head Tilt - Left'
-        story.append(Paragraph(f"{i}. {issue}", styles['CustomBodyText']))
+        condition = issue  # Full condition name
+
+        story.append(Paragraph(f"{i}. {condition}", styles['CustomBodyText']))
 
     if not all_issues:
-        story.append(Paragraph("No significant postural issues detected.", styles['CustomBodyText']))
+        story.append(Paragraph("未檢測到顯著的姿勢問題。", styles['CustomBodyText']))
     story.append(Spacer(1, 6))
 
     # Recommended exercises
-    story.append(Paragraph("Recommended Exercises", styles['CustomHeading2']))
+    story.append(Paragraph("推薦運動", styles['CustomHeading2']))
 
     # Read exercises from the Intervention.txt file
     exercises = {}
@@ -612,13 +611,13 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
                 elif line.startswith(('1.', '2.')) and current_issue:
                     exercises[current_issue].append(line)
     except FileNotFoundError:
-        logging.error("Intervention.txt file not found.")
+        logging.error("Intervention.txt 文件未找到。")
     except Exception as e:
-        logging.error(f"Error reading Intervention.txt: {str(e)}")
+        logging.error(f"讀取 Intervention.txt 時出錯：{str(e)}")
 
     # Add exercises for detected issues
     for i, (issue, _) in enumerate(all_issues):
-        exercise_title = f"{chr(65 + i)}. {issue}"
+        exercise_title = f"{chr(65 + i)}. {key_to_title(issue)}"
         story.append(Paragraph(exercise_title, styles['CustomHeading3']))
 
         issue_exercises = exercises.get(issue, [])
@@ -631,26 +630,26 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
             full_image_path = os.path.join(os.getcwd(), image_path)
             if os.path.exists(full_image_path):
                 story.append(RLImage(full_image_path, width=3 * cm, height=3 * cm, kind='proportional'))
-                logging.info(f"Found image for {issue}: {full_image_path}")
+                logging.info(f"找到 {issue} 的圖片: {full_image_path}")
             else:
-                story.append(Paragraph("Exercise image not found.", styles['CustomBodyText']))
-                logging.warning(f"Image not found for {issue}: {full_image_path}")
+                story.append(Paragraph("未找到運動圖片。", styles['CustomBodyText']))
+                logging.warning(f"未找到 {issue} 的圖片: {full_image_path}")
 
         if not issue_exercises:
-            story.append(Paragraph("No specific exercises found for this issue.", styles['CustomBodyText']))
-            logging.warning(f"No exercises found for {issue}")
+            story.append(Paragraph("未找到針對此問題的具體運動。", styles['CustomBodyText']))
+            logging.warning(f"未找到 {issue} 的運動。")
 
         story.append(Spacer(1, 6))
 
     # General recommendations
-    story.append(Paragraph("General Recommendations", styles['CustomHeading2']))
+    story.append(Paragraph("一般建議", styles['CustomHeading2']))
 
     general_recs = exercises.get('General Recommendations', [])
     if general_recs:
         for rec in general_recs:
             story.append(Paragraph(f"{rec}", styles['CustomBodyText']))
     else:
-        story.append(Paragraph("No general recommendations found.", styles['CustomBodyText']))
+        story.append(Paragraph("未找到一般建議。", styles['CustomBodyText']))
 
     # Build the PDF with custom background and frames
     def add_background_and_frames(canvas_obj, doc_obj):
@@ -661,16 +660,15 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
         canvas_obj.roundRect(0.25 * inch, 0.25 * inch, doc_obj.pagesize[0] - 0.5 * inch,
                              doc_obj.pagesize[1] - 0.5 * inch, 10, fill=True, stroke=False)
         canvas_obj.setFont('Helvetica', 9)
-        canvas_obj.drawRightString(7.5 * inch, 0.75 * inch, f"Page {doc_obj.page}")
+        canvas_obj.drawRightString(7.5 * inch, 0.75 * inch, f"第 {doc_obj.page} 頁")
         canvas_obj.restoreState()
 
     doc.build(story, onFirstPage=add_background_and_frames, onLaterPages=add_background_and_frames)
     output_buffer.seek(0)
     return output_buffer
 
-# No changes needed in key_to_title since conditions are already properly formatted
 def key_to_title(key):
-    return key  # Already formatted as 'Head Tilt - Left' etc.
+    return key  # 已經格式化為 'Head Tilt - Left' 等
 
 # Route Definitions
 
@@ -691,29 +689,35 @@ def index():
 
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
-                # Compress uploaded files to approximately 30KB
-                anterior_compressed = compress_image(anterior_file.stream, max_size_kb=30)
-                lateral_compressed = compress_image(lateral_file.stream, max_size_kb=30)
-
-                if anterior_compressed is None or lateral_compressed is None:
-                    flash('Error compressing images. Please try with different files.')
+                # Compress and save uploaded anterior image
+                anterior_compressed = compress_image(anterior_file, max_size_kb=30)
+                if anterior_compressed is None:
+                    flash('上視圖圖像壓縮失敗。請嘗試使用較小的圖像。')
                     return redirect(request.url)
 
-                # Save compressed images to temp directory
                 anterior_path = os.path.join(temp_dir, 'anterior.jpg')
-                lateral_path = os.path.join(temp_dir, 'lateral.jpg')
-                cv2.imwrite(anterior_path, anterior_compressed)
-                cv2.imwrite(lateral_path, lateral_compressed)
+                with open(anterior_path, 'wb') as f:
+                    f.write(anterior_compressed.read())
 
-                logging.info(f"Compressed anterior image saved to {anterior_path}")
-                logging.info(f"Compressed lateral image saved to {lateral_path}")
+                # Compress and save uploaded lateral image
+                lateral_compressed = compress_image(lateral_file, max_size_kb=30)
+                if lateral_compressed is None:
+                    flash('側視圖圖像壓縮失敗。請嘗試使用較小的圖像。')
+                    return redirect(request.url)
+
+                lateral_path = os.path.join(temp_dir, 'lateral.jpg')
+                with open(lateral_path, 'wb') as f:
+                    f.write(lateral_compressed.read())
+
+                logging.info(f"壓縮後的上視圖圖像保存到 {anterior_path}")
+                logging.info(f"壓縮後的側視圖圖像保存到 {lateral_path}")
 
                 # Read images using OpenCV
                 anterior_image = cv2.imread(anterior_path)
                 lateral_image = cv2.imread(lateral_path)
 
                 if anterior_image is None or lateral_image is None:
-                    flash('Error: Failed to read one or both images after compression.')
+                    flash('錯誤：無法讀取上視圖或側視圖圖像。')
                     return redirect(request.url)
 
                 # Detect keypoints
@@ -744,8 +748,8 @@ def index():
                 cv2.imwrite(annotated_anterior_path, annotated_anterior)
                 cv2.imwrite(annotated_lateral_path, annotated_lateral)
 
-                logging.info(f"Annotated anterior image saved to {annotated_anterior_path}")
-                logging.info(f"Annotated lateral image saved to {annotated_lateral_path}")
+                logging.info(f"註釋後的上視圖圖像保存到 {annotated_anterior_path}")
+                logging.info(f"註釋後的側視圖圖像保存到 {annotated_lateral_path}")
 
                 # Path to logo.jpg in static folder
                 logo_path = os.path.join(os.getcwd(), 'static', 'logo.jpg')
@@ -759,7 +763,7 @@ def index():
                     logo_path
                 )
 
-                logging.info("Report generation complete.")
+                logging.info("報告生成完成。")
 
                 # Send the PDF as a downloadable file
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -773,9 +777,9 @@ def index():
                 )
 
         except Exception as e:
-            logging.error(f"An error occurred during processing: {str(e)}")
-            logging.exception("Exception details:")
-            flash('An error occurred while processing your images. Please ensure the images are valid and try again.')
+            logging.error(f"處理過程中發生錯誤：{str(e)}")
+            logging.exception("詳細異常信息：")
+            flash('處理您的圖像時發生錯誤。請確保圖片大小不超過10MB並重試。')
             return redirect(request.url)
 
     return render_template('index.html')
