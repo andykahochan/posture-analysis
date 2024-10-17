@@ -7,7 +7,7 @@ from flask import Flask, render_template, request, send_from_directory, redirect
 from werkzeug.utils import secure_filename
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch, cm
 from datetime import datetime
@@ -102,28 +102,173 @@ def calculate_knee_deviation(hip, knee, ankle):
         return acute_knee_angle, 'Hyperextended'
 
 def analyze_anterior_view(keypoints, image_shape):
-    # Existing function remains unchanged
-    # ...
-    # (Omitted for brevity; use the same implementation as provided)
-    pass  # Replace with the original implementation
+    if not keypoints:
+        logging.warning("No keypoints provided for anterior view analysis.")
+        return {}
+
+    results = {}
+
+    # Example: Calculate hip width
+    if 'left_hip' in keypoints and 'right_hip' in keypoints:
+        left_hip = keypoints['left_hip']
+        right_hip = keypoints['right_hip']
+        hip_width = np.linalg.norm(np.array(left_hip) - np.array(right_hip))
+        results['hip_width'] = hip_width
+
+    # Add more analysis as needed
+    return results
 
 def analyze_lateral_view(keypoints, image_shape):
-    # Existing function remains unchanged
-    # ...
-    # (Omitted for brevity; use the same implementation as provided)
-    pass  # Replace with the original implementation
+    if not keypoints:
+        logging.warning("No keypoints provided for lateral view analysis.")
+        return {}
+
+    results = {}
+
+    # Example: Calculate knee angle
+    if 'left_knee' in keypoints and 'left_hip' in keypoints and 'left_ankle' in keypoints:
+        knee_angle, deviation = calculate_knee_deviation(
+            keypoints['left_hip'],
+            keypoints['left_knee'],
+            keypoints['left_ankle']
+        )
+        results['left_knee_angle'] = knee_angle
+        results['left_knee_deviation'] = deviation
+
+    if 'right_knee' in keypoints and 'right_hip' in keypoints and 'right_ankle' in keypoints:
+        knee_angle, deviation = calculate_knee_deviation(
+            keypoints['right_hip'],
+            keypoints['right_knee'],
+            keypoints['right_ankle']
+        )
+        results['right_knee_angle'] = knee_angle
+        results['right_knee_deviation'] = deviation
+
+    # Add more analysis as needed
+    return results
 
 def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
-    # Existing function remains unchanged
-    # ...
-    # (Omitted for brevity; use the same implementation as provided)
-    pass  # Replace with the original implementation
+    annotated_image = image.copy()
+
+    if keypoints:
+        # Draw pose landmarks using MediaPipe's drawing utility
+        pose_landmarks = mp_pose.PoseLandmark
+        landmarks = []
+        for idx, landmark in enumerate(mp_pose.PoseLandmark):
+            if landmark.name.lower() in keypoints:
+                x, y = keypoints[landmark.name.lower()]
+                landmarks.append(mp.framework.formats.landmark_pb2.NormalizedLandmark(x=x, y=y))
+
+        # Convert to a MediaPipe Landmarks object
+        class Landmarks:
+            def __init__(self, landmarks):
+                self.landmark = landmarks
+
+        mp_landmarks = Landmarks(landmarks)
+
+        mp_drawing.draw_landmarks(
+            annotated_image,
+            mp_landmarks,
+            mp_pose.POSE_CONNECTIONS,
+            mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
+            mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2)
+        )
+
+        # Draw analysis results (e.g., angles)
+        y_offset = 30
+        for key, value in analysis_results.items():
+            text = f"{key.replace('_', ' ').capitalize()}: {value}"
+            cv2.putText(annotated_image, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+            y_offset += 30
+    else:
+        logging.warning(f"No keypoints to draw for {view} view.")
+        # Optionally, add a text indicating no keypoints were detected
+        cv2.putText(annotated_image, "No keypoints detected.", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+    return annotated_image
 
 def generate_report(anterior_results, lateral_results, anterior_image_path, lateral_image_path):
-    # Existing function remains unchanged
-    # ...
-    # (Omitted for brevity; use the same implementation as provided)
-    pass  # Replace with the original implementation
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_filename = f'posture_analysis_report_{timestamp}.pdf'
+    report_path = os.path.join(app.config['OUTPUT_FOLDER'], report_filename)
+
+    doc = SimpleDocTemplate(report_path, pagesize=letter)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    # Title
+    title = Paragraph("Posture Analysis Report", styles['Title'])
+    elements.append(title)
+    elements.append(Spacer(1, 12))
+
+    # Date
+    report_date = Paragraph(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal'])
+    elements.append(report_date)
+    elements.append(Spacer(1, 12))
+
+    # Images
+    try:
+        anterior_img = RLImage(anterior_image_path, width=4*inch, height=4*inch)
+        lateral_img = RLImage(lateral_image_path, width=4*inch, height=4*inch)
+        elements.append(Paragraph("Annotated Anterior View:", styles['Heading2']))
+        elements.append(anterior_img)
+        elements.append(Spacer(1, 12))
+        elements.append(Paragraph("Annotated Lateral View:", styles['Heading2']))
+        elements.append(lateral_img)
+        elements.append(Spacer(1, 12))
+    except Exception as e:
+        logging.error(f"Error adding images to report: {e}")
+
+    # Anterior Results
+    elements.append(Paragraph("Anterior View Analysis:", styles['Heading2']))
+    if anterior_results:
+        data = [[key_to_title(k), str(v)] for k, v in anterior_results.items()]
+        table = Table(data, colWidths=[3*inch, 3*inch])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.gray),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0,0), (-1,-1), 1, colors.black),
+        ]))
+        elements.append(table)
+    else:
+        elements.append(Paragraph("No analysis results available.", styles['Normal']))
+    elements.append(Spacer(1, 12))
+
+    # Lateral Results
+    elements.append(Paragraph("Lateral View Analysis:", styles['Heading2']))
+    if lateral_results:
+        data = [[key_to_title(k), str(v)] for k, v in lateral_results.items()]
+        table = Table(data, colWidths=[3*inch, 3*inch])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.gray),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0,0), (-1,-1), 1, colors.black),
+        ]))
+        elements.append(table)
+    else:
+        elements.append(Paragraph("No analysis results available.", styles['Normal']))
+    elements.append(Spacer(1, 12))
+
+    # Build PDF
+    try:
+        doc.build(elements)
+    except Exception as e:
+        logging.error(f"Error generating PDF report: {e}")
+        raise e
+
+    return report_filename
 
 def key_to_title(key):
     return ' '.join(word.capitalize() for word in key.replace('-', '_').split('_'))
@@ -147,8 +292,12 @@ def index():
             anterior_filename = secure_filename(anterior_file.filename)
             lateral_filename = secure_filename(lateral_file.filename)
 
-            anterior_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{uuid.uuid4()}_{anterior_filename}")
-            lateral_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{uuid.uuid4()}_{lateral_filename}")
+            # Remove existing extensions to prevent duplication
+            anterior_base, anterior_ext = os.path.splitext(anterior_filename)
+            lateral_base, lateral_ext = os.path.splitext(lateral_filename)
+
+            anterior_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{uuid.uuid4()}_{anterior_base}{anterior_ext}")
+            lateral_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{uuid.uuid4()}_{lateral_base}{lateral_ext}")
 
             anterior_file.save(anterior_path)
             lateral_file.save(lateral_path)
@@ -172,9 +321,16 @@ def index():
                 lateral_results = analyze_lateral_view(lateral_keypoints, lateral_image.shape)
 
                 annotated_anterior = draw_landmarks_and_angles(anterior_image, anterior_keypoints or {}, 'anterior',
-                                                               anterior_results)
+                                                              anterior_results)
                 annotated_lateral = draw_landmarks_and_angles(lateral_image, lateral_keypoints or {}, 'lateral',
-                                                              lateral_results)
+                                                             lateral_results)
+
+                if annotated_anterior is None or annotated_lateral is None:
+                    flash("Failed to annotate images.")
+                    # Cleanup uploaded images
+                    os.remove(anterior_path)
+                    os.remove(lateral_path)
+                    return redirect(request.url)
 
                 # Generate unique filenames
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -191,10 +347,8 @@ def index():
                 logging.info(f"Annotated lateral image saved: {annotated_lateral_path}")
 
                 # Generate PDF report
-                report_filename = f'posture_analysis_report_{timestamp}.pdf'
+                report_filename = generate_report(anterior_results, lateral_results, annotated_anterior_path, annotated_lateral_path)
                 report_path = os.path.join(app.config['OUTPUT_FOLDER'], report_filename)
-
-                generate_report(anterior_results, lateral_results, annotated_anterior_path, annotated_lateral_path)
 
                 logging.info(f"Report generated: {report_path}")
 
