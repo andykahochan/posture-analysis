@@ -14,11 +14,11 @@ Shoulder Tilt - Right:
 1. Stretching Exercise: Cross-body shoulder stretch (opposite arm).
 2. Strengthening Exercise: Scapular retraction exercises (opposite side).
 
-Pelvic Tilt - Tilted - Anterior:
+Pelvic Tilt - Anterior:
 1. Stretching Exercise: Hip flexor stretch.
 2. Strengthening Exercise: Core stabilization exercises.
 
-Pelvic Tilt - Tilted - Posterior:
+Pelvic Tilt - Posterior:
 1. Stretching Exercise: Hamstring stretch.
 2. Strengthening Exercise: Pelvic tilts (posterior).
 
@@ -30,11 +30,11 @@ Knee - Valgus:
 1. Stretching Exercise: IT band stretch.
 2. Strengthening Exercise: Clamshells.
 
-Foot Rotation - Externally Rotated rotated:
+Foot Rotation - Externally Rotated:
 1. Stretching Exercise: Calf stretch with foot turned in.
 2. Strengthening Exercise: Foot doming exercises.
 
-Foot Rotation - Internally Rotated rotated:
+Foot Rotation - Internally Rotated:
 1. Stretching Exercise: Calf stretch with foot turned in (opposite side).
 2. Strengthening Exercise: Foot doming exercises (opposite side).
 

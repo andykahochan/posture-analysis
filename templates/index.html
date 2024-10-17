@@ -4,26 +4,61 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>姿勢分析應用</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <!-- Bootstrap CSS for styling and responsiveness -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Font Awesome for icons -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-        /* Custom Styles */
-        .dropzone {
-            border: 2px dashed #007bff;
-            border-radius: 5px;
-            padding: 40px;
-            text-align: center;
-            color: #6c757d;
-            transition: background-color 0.3s, border-color 0.3s;
+        @keyframes rainbow {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
         }
 
-        .dropzone.dragover {
+        body {
+            background: linear-gradient(124deg, #ff2400, #e81d1d, #e8b71d, #e3e81d, #1de840, #1ddde8, #2b1de8, #dd00f3, #dd00f3);
+            background-size: 1800% 1800%;
+            animation: rainbow 18s ease infinite;
+        }
+
+        .container {
+            background-color: rgba(255, 255, 255, 0.9);
+            border-radius: 25px;
+            padding: 20px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        }
+
+        .logo {
+            max-width: 150px;
+            margin-bottom: 20px;
+            transition: transform 0.3s ease;
+        }
+
+        .logo:hover {
+            transform: scale(1.1);
+        }
+
+        .dropzone {
+            border: 2px dashed #007bff;
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            color: #6c757d;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .dropzone:hover, .dropzone.dragover {
             background-color: #e9ecef;
             border-color: #0056b3;
             color: #0056b3;
+            transform: scale(1.02);
+        }
+
+        .dropzone i {
+            transition: transform 0.3s ease;
+        }
+
+        .dropzone:hover i {
+            transform: translateY(-5px);
         }
 
         .hidden {
@@ -32,43 +67,52 @@
 
         .progress {
             height: 25px;
+            border-radius: 15px;
+            overflow: hidden;
+            margin-top: 20px;
         }
 
         .progress-bar {
+            background-color: #28a745;
             width: 0%;
-            transition: width 0.4s;
-        }
-
-        .logo {
-            max-width: 200px;
-            margin-bottom: 20px;
-        }
-
-        .btn-upload {
-            margin-top: 10px;
+            transition: width 0.4s ease;
         }
 
         .btn-submit {
             margin-top: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .btn-submit:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        .file-info {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #6c757d;
         }
 
         @media (max-width: 576px) {
-            .logo {
-                max-width: 150px;
+            .container {
+                padding: 15px;
             }
 
             .dropzone {
-                padding: 20px;
+                padding: 15px;
+            }
+
+            .logo {
+                max-width: 120px;
             }
         }
     </style>
 </head>
 <body>
-    <div class="container mt-5 mb-5">
+    <div class="container mt-4 mb-4">
         <div class="text-center">
-            {% if logo and logo != '' %}
-                <img src="{{ url_for('static', filename=logo) }}" alt="Logo" class="logo img-fluid">
-            {% endif %}
+            <img src="logo.jpg" alt="Logo" class="logo img-fluid">
             <h1 class="mb-4">姿勢分析應用</h1>
         </div>
         {% with messages = get_flashed_messages() %}
@@ -84,22 +128,22 @@
         <form method="POST" enctype="multipart/form-data" id="upload-form">
             <div class="row">
                 <div class="col-md-6 mb-4">
-                    <label for="anterior_image" class="form-label">上視圖圖像</label>
+                    <label for="anterior_file" class="form-label">上視圖檔案</label>
                     <div class="dropzone" id="anterior-dropzone">
-                        <i class="fas fa-cloud-upload-alt fa-3x"></i>
-                        <p>拖放上視圖圖像到這裡或點擊選擇</p>
-                        <input type="file" name="anterior_image" id="anterior_image" accept="image/*" class="form-control hidden">
+                        <i class="fas fa-file-import fa-3x mb-3"></i>
+                        <p>拖放上視圖檔案到這裡或點擊選擇</p>
+                        <input type="file" name="anterior_file" id="anterior_file" class="form-control hidden">
                     </div>
-                    <img id="anterior-preview" src="#" alt="上視圖預覽" class="img-fluid mt-3 hidden">
+                    <div id="anterior-file-info" class="file-info"></div>
                 </div>
                 <div class="col-md-6 mb-4">
-                    <label for="lateral_image" class="form-label">側視圖圖像</label>
+                    <label for="lateral_file" class="form-label">側視圖檔案</label>
                     <div class="dropzone" id="lateral-dropzone">
-                        <i class="fas fa-cloud-upload-alt fa-3x"></i>
-                        <p>拖放側視圖圖像到這裡或點擊選擇</p>
-                        <input type="file" name="lateral_image" id="lateral_image" accept="image/*" class="form-control hidden">
+                        <i class="fas fa-file-import fa-3x mb-3"></i>
+                        <p>拖放側視圖檔案到這裡或點擊選擇</p>
+                        <input type="file" name="lateral_file" id="lateral_file" class="form-control hidden">
                     </div>
-                    <img id="lateral-preview" src="#" alt="側視圖預覽" class="img-fluid mt-3 hidden">
+                    <div id="lateral-file-info" class="file-info"></div>
                 </div>
             </div>
             <div class="progress mb-3 hidden" id="upload-progress">
@@ -109,73 +153,96 @@
         </form>
     </div>
 
-    <!-- Bootstrap JS and dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- Font Awesome JS for icons -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
     <script>
         const anteriorDropzone = document.getElementById('anterior-dropzone');
         const lateralDropzone = document.getElementById('lateral-dropzone');
-        const anteriorInput = document.getElementById('anterior_image');
-        const lateralInput = document.getElementById('lateral_image');
-        const anteriorPreview = document.getElementById('anterior-preview');
-        const lateralPreview = document.getElementById('lateral-preview');
+        const anteriorInput = document.getElementById('anterior_file');
+        const lateralInput = document.getElementById('lateral_file');
+        const anteriorFileInfo = document.getElementById('anterior-file-info');
+        const lateralFileInfo = document.getElementById('lateral-file-info');
         const uploadProgress = document.getElementById('upload-progress');
         const progressBar = uploadProgress.querySelector('.progress-bar');
         const submitButton = document.getElementById('submit-button');
 
-        // Function to handle drag and drop
-        function setupDropzone(dropzone, input, preview) {
-            dropzone.addEventListener('dragover', (e) => {
+        function setupDropzone(dropzone, input, fileInfo) {
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropzone.addEventListener(eventName, preventDefaults, false);
+            });
+
+            function preventDefaults(e) {
                 e.preventDefault();
+                e.stopPropagation();
+            }
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropzone.addEventListener(eventName, highlight, false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropzone.addEventListener(eventName, unhighlight, false);
+            });
+
+            function highlight() {
                 dropzone.classList.add('dragover');
-            });
+            }
 
-            dropzone.addEventListener('dragleave', () => {
+            function unhighlight() {
                 dropzone.classList.remove('dragover');
-            });
+            }
 
-            dropzone.addEventListener('drop', (e) => {
-                e.preventDefault();
-                dropzone.classList.remove('dragover');
-                const files = e.dataTransfer.files;
+            dropzone.addEventListener('drop', handleDrop, false);
+
+            function handleDrop(e) {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                handleFiles(files);
+            }
+
+            function handleFiles(files) {
                 if (files.length > 0) {
                     input.files = files;
-                    preview.src = URL.createObjectURL(files[0]);
-                    preview.classList.remove('hidden');
+                    updateFileInfo(files[0]);
                 }
-            });
+            }
 
-            dropzone.addEventListener('click', () => {
-                input.click();
-            });
+            function updateFileInfo(file) {
+                fileInfo.textContent = `檔案名稱: ${file.name}, 大小: ${formatFileSize(file.size)}`;
+            }
+
+            function formatFileSize(bytes) {
+                if (bytes === 0) return '0 Bytes';
+                const k = 1024;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+            }
+
+            dropzone.addEventListener('click', () => input.click());
 
             input.addEventListener('change', () => {
                 if (input.files && input.files[0]) {
-                    preview.src = URL.createObjectURL(input.files[0]);
-                    preview.classList.remove('hidden');
+                    updateFileInfo(input.files[0]);
                 }
             });
         }
 
-        setupDropzone(anteriorDropzone, anteriorInput, anteriorPreview);
-        setupDropzone(lateralDropzone, lateralInput, lateralPreview);
+        setupDropzone(anteriorDropzone, anteriorInput, anteriorFileInfo);
+        setupDropzone(lateralDropzone, lateralInput, lateralFileInfo);
 
-        // Handle form submission
         const form = document.getElementById('upload-form');
         form.addEventListener('submit', function(event) {
             const filesSelected = anteriorInput.files.length > 0 && lateralInput.files.length > 0;
             if (!filesSelected) {
                 event.preventDefault();
-                alert('請上傳兩張圖像（上視圖和側視圖）。');
+                alert('請上傳兩個檔案（上視圖和側視圖）。');
                 return;
             }
 
-            // Show progress bar
             uploadProgress.classList.remove('hidden');
             progressBar.style.width = '0%';
 
-            // Simulate progress
             let progress = 0;
             const interval = setInterval(() => {
                 if (progress >= 100) {

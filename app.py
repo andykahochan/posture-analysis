@@ -23,6 +23,7 @@ from io import BytesIO
 # Initialize Flask app
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # Replace with a secure key in production
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB max upload size
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -110,14 +111,17 @@ def analyze_anterior_view(keypoints, image_shape):
         head_tilt = abs(180 - abs(head_angle))
         if head_tilt > 3:
             direction = 'Right' if head_angle > 0 else 'Left'
-            results['head_tilt'] = ('Severe', head_tilt, direction)
+            key = f'Head Tilt - {direction}'
+            results[key] = ('Severe', head_tilt, direction)
         elif 2 <= head_tilt <= 3:
             direction = 'Right' if head_angle > 0 else 'Left'
-            results['head_tilt'] = ('Mild', head_tilt, direction)
+            key = f'Head Tilt - {direction}'
+            results[key] = ('Mild', head_tilt, direction)
         else:
-            results['head_tilt'] = ('Normal', head_tilt, 'Centered')
+            key = 'Head Tilt - Centered'
+            results[key] = ('Normal', head_tilt, 'Centered')
     else:
-        results['head_tilt'] = ('Not detected', 0, 'Unable to analyze')
+        results['Head Tilt - Not detected'] = ('Not detected', 0, 'Unable to analyze')
 
     # Shoulder Horizontal Tilt
     if 'left_shoulder' in keypoints and 'right_shoulder' in keypoints:
@@ -127,14 +131,17 @@ def analyze_anterior_view(keypoints, image_shape):
         shoulder_tilt = 180 - abs(shoulder_angle)
         if shoulder_tilt > 3:
             direction = 'Right' if shoulder_angle > 0 else 'Left'
-            results['shoulder_tilt'] = ('Severe', shoulder_tilt, direction)
+            key = f'Shoulder Tilt - {direction}'
+            results[key] = ('Severe', shoulder_tilt, direction)
         elif 2 <= shoulder_tilt <= 3:
             direction = 'Right' if shoulder_angle > 0 else 'Left'
-            results['shoulder_tilt'] = ('Mild', shoulder_tilt, direction)
+            key = f'Shoulder Tilt - {direction}'
+            results[key] = ('Mild', shoulder_tilt, direction)
         else:
-            results['shoulder_tilt'] = ('Normal', shoulder_tilt, 'Level')
+            key = 'Shoulder Tilt - Level'
+            results[key] = ('Normal', shoulder_tilt, 'Level')
     else:
-        results['shoulder_tilt'] = ('Not detected', 0, 'Unable to analyze')
+        results['Shoulder Tilt - Not detected'] = ('Not detected', 0, 'Unable to analyze')
 
     # Pelvic Horizontal Tilt
     if 'left_hip' in keypoints and 'right_hip' in keypoints:
@@ -144,57 +151,75 @@ def analyze_anterior_view(keypoints, image_shape):
         pelvic_tilt = 180 - abs(pelvic_angle)
         if pelvic_tilt > 3:
             direction = 'Right' if pelvic_angle > 0 else 'Left'
-            results['pelvic_tilt'] = ('Severe', pelvic_tilt, direction)
+            key = f'Pelvic Tilt - {direction}'
+            results[key] = ('Severe', pelvic_tilt, direction)
         elif 2 <= pelvic_tilt <= 3:
             direction = 'Right' if pelvic_angle > 0 else 'Left'
-            results['pelvic_tilt'] = ('Mild', pelvic_tilt, direction)
+            key = f'Pelvic Tilt - {direction}'
+            results[key] = ('Mild', pelvic_tilt, direction)
         else:
-            results['pelvic_tilt'] = ('Normal', pelvic_tilt, 'Level')
+            key = 'Pelvic Tilt - Level'
+            results[key] = ('Normal', pelvic_tilt, 'Level')
     else:
-        results['pelvic_tilt'] = ('Not detected', 0, 'Unable to analyze')
+        results['Pelvic Tilt - Not detected'] = ('Not detected', 0, 'Unable to analyze')
 
     # Knee Valgus/Varus
-    for side in ['left', 'right']:
-        if f'{side}_hip' in keypoints and f'{side}_knee' in keypoints and f'{side}_ankle' in keypoints:
-            hip = np.array(keypoints[f'{side}_hip'])
-            knee = np.array(keypoints[f'{side}_knee'])
-            ankle = np.array(keypoints[f'{side}_ankle'])
+    for side in ['Left', 'Right']:
+        side_lower = side.lower()
+        if f'{side_lower}_hip' in keypoints and f'{side_lower}_knee' in keypoints and f'{side_lower}_ankle' in keypoints:
+            hip = np.array(keypoints[f'{side_lower}_hip'])
+            knee = np.array(keypoints[f'{side_lower}_knee'])
+            ankle = np.array(keypoints[f'{side_lower}_ankle'])
 
             hip_ankle_vector = ankle - hip
             hip_knee_vector = knee - hip
             cross_product = np.cross(hip_ankle_vector[:2], hip_knee_vector[:2])
             angle = abs(calculate_angle(hip, knee, ankle) - 180)
-            knee_deviation = 'Valgus' if (cross_product > 0 and side == 'left') or (cross_product < 0 and side == 'right') else 'Varus'
+            knee_deviation = 'Valgus' if (cross_product > 0 and side == 'Left') or (cross_product < 0 and side == 'Right') else 'Varus'
 
+            key = f'Knee - {knee_deviation}'
             if angle > 15:
-                results[f'{side}_knee'] = ('Severe', angle, knee_deviation)
+                results[key] = ('Severe', angle, knee_deviation)
             elif 5 <= angle <= 15:
-                results[f'{side}_knee'] = ('Mild', angle, knee_deviation)
+                results[key] = ('Mild', angle, knee_deviation)
             else:
-                results[f'{side}_knee'] = ('Normal', angle, 'Aligned')
+                results[key] = ('Normal', angle, 'Aligned')
         else:
-            results[f'{side}_knee'] = ('Not detected', 0, 'Unable to analyze')
+            key = f'Knee - {side}'
+            results[key] = ('Not detected', 0, 'Unable to analyze')
 
     # Feet Rotation
-    for side in ['left', 'right']:
-        if f'{side}_ankle' in keypoints and f'{side}_foot_index' in keypoints:
-            ankle = np.array(keypoints[f'{side}_ankle'])
-            toe = np.array(keypoints[f'{side}_foot_index'])
+    for side in ['Left', 'Right']:
+        side_lower = side.lower()
+        if f'{side_lower}_ankle' in keypoints and f'{side_lower}_foot_index' in keypoints:
+            ankle = np.array(keypoints[f'{side_lower}_ankle'])
+            toe = np.array(keypoints[f'{side_lower}_foot_index'])
             foot_angle = np.degrees(np.arctan2(toe[0] - ankle[0], ankle[1] - toe[1]))
             foot_angle = 180 - abs(foot_angle)
 
             if foot_angle > 30:
-                results[f'{side}_foot_rotation'] = ('Severe', foot_angle, 'Externally rotated')
+                condition = 'Externally Rotated'
+                key = f'Foot Rotation - {condition}'
+                results[key] = ('Severe', foot_angle, condition)
             elif 18 < foot_angle <= 30:
-                results[f'{side}_foot_rotation'] = ('Mild', foot_angle, 'Externally rotated')
+                condition = 'Externally Rotated'
+                key = f'Foot Rotation - {condition}'
+                results[key] = ('Mild', foot_angle, condition)
             elif 5 <= foot_angle <= 18:
-                results[f'{side}_foot_rotation'] = ('Normal', foot_angle, 'Aligned')
+                condition = 'Aligned'
+                key = f'Foot Rotation - {condition}'
+                results[key] = ('Normal', foot_angle, condition)
             elif 0 <= foot_angle < 5:
-                results[f'{side}_foot_rotation'] = ('Mild', foot_angle, 'Internally rotated')
+                condition = 'Internally Rotated'
+                key = f'Foot Rotation - {condition}'
+                results[key] = ('Mild', foot_angle, condition)
             else:
-                results[f'{side}_foot_rotation'] = ('Severe', abs(foot_angle), 'Internally rotated')
+                condition = 'Internally Rotated'
+                key = f'Foot Rotation - {condition}'
+                results[key] = ('Severe', abs(foot_angle), condition)
         else:
-            results[f'{side}_foot_rotation'] = ('Not detected', 0, 'Unable to analyze')
+            key = f'Foot Rotation - {side}'
+            results[key] = ('Not detected', 0, 'Unable to analyze')
 
     return results
 
@@ -212,13 +237,16 @@ def analyze_lateral_view(keypoints, image_shape):
         shoulder = np.array(keypoints['right_shoulder'])
         forward_head_distance = (ear[0] - shoulder[0]) / width * 100  # Convert to percentage of image width
         if forward_head_distance > 5:  # Assuming 5% of image width as threshold (adjust as needed)
-            results['forward_head'] = ('Severe', forward_head_distance, 'Forward')
+            key = 'Forward Head'
+            results[key] = ('Severe', forward_head_distance, 'Forward')
         elif forward_head_distance > 2:
-            results['forward_head'] = ('Mild', forward_head_distance, 'Forward')
+            key = 'Forward Head'
+            results[key] = ('Mild', forward_head_distance, 'Forward')
         else:
-            results['forward_head'] = ('Normal', forward_head_distance, 'Aligned')
+            key = 'Forward Head'
+            results[key] = ('Normal', forward_head_distance, 'Aligned')
     else:
-        results['forward_head'] = ('Not detected', 0, 'Unable to analyze')
+        results['Forward Head'] = ('Not detected', 0, 'Unable to analyze')
 
     # Round Shoulders
     if 'right_shoulder' in keypoints and 'right_hip' in keypoints:
@@ -226,13 +254,16 @@ def analyze_lateral_view(keypoints, image_shape):
         hip = np.array(keypoints['right_hip'])
         shoulder_angle = np.degrees(np.arctan2(shoulder[0] - hip[0], hip[1] - shoulder[1]))
         if shoulder_angle > 30:
-            results['round_shoulders'] = ('Severe', shoulder_angle, 'Rounded')
+            key = 'Round Shoulders'
+            results[key] = ('Severe', shoulder_angle, 'Rounded')
         elif shoulder_angle > 20:
-            results['round_shoulders'] = ('Mild', shoulder_angle, 'Rounded')
+            key = 'Round Shoulders'
+            results[key] = ('Mild', shoulder_angle, 'Rounded')
         else:
-            results['round_shoulders'] = ('Normal', shoulder_angle, 'Aligned')
+            key = 'Round Shoulders'
+            results[key] = ('Normal', shoulder_angle, 'Aligned')
     else:
-        results['round_shoulders'] = ('Not detected', 0, 'Unable to analyze')
+        results['Round Shoulders'] = ('Not detected', 0, 'Unable to analyze')
 
     # Pelvic Tilt
     if 'right_hip' in keypoints and 'right_knee' in keypoints:
@@ -243,13 +274,16 @@ def analyze_lateral_view(keypoints, image_shape):
         pelvic_angle = np.degrees(np.arctan2(knee[0] - hip[0], hip[1] - knee[1]))
 
         if pelvic_angle > 0:
-            results['pelvic_tilt'] = ('Posterior', pelvic_angle, 'Tilted')
+            key = 'Pelvic Tilt - Posterior'
+            results[key] = ('Posterior', pelvic_angle, 'Tilted')
         elif pelvic_angle < 0:
-            results['pelvic_tilt'] = ('Anterior', abs(pelvic_angle), 'Tilted')
+            key = 'Pelvic Tilt - Anterior'
+            results[key] = ('Anterior', abs(pelvic_angle), 'Tilted')
         else:
-            results['pelvic_tilt'] = ('Normal', pelvic_angle, 'Neutral')
+            key = 'Pelvic Tilt - Neutral'
+            results[key] = ('Normal', pelvic_angle, 'Neutral')
     else:
-        results['pelvic_tilt'] = ('Not detected', 0, 'Unable to analyze')
+        results['Pelvic Tilt - Not detected'] = ('Not detected', 0, 'Unable to analyze')
 
     # Knee Flexion/Hyperextension (Right Lateral View)
     if 'right_hip' in keypoints and 'right_knee' in keypoints and 'right_ankle' in keypoints:
@@ -275,9 +309,10 @@ def analyze_lateral_view(keypoints, image_shape):
                 status = 'Normal'
 
         # Format the result as: "Knee Angle: Mild/Severe/Normal (Angle) - Hyperextended/Flexed"
-        results['knee_angle'] = (status, deviation_angle, direction)
+        key = 'Knee Angle'
+        results[key] = (status, deviation_angle, direction)
     else:
-        results['knee_angle'] = ('Not detected', 0, 'Unable to analyze')
+        results['Knee Angle'] = ('Not detected', 0, 'Unable to analyze')
 
     return results
 
@@ -301,38 +336,59 @@ def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
     # Define connections and draw them
     if view == 'anterior':
         connections = [
-            ('left_eye', 'right_eye', 'head_tilt'),
-            ('left_shoulder', 'right_shoulder', 'shoulder_tilt'),
-            ('left_hip', 'right_hip', 'pelvic_tilt'),
-            ('left_shoulder', 'left_elbow', None),
-            ('left_elbow', 'left_wrist', None),
-            ('right_shoulder', 'right_elbow', None),
-            ('right_elbow', 'right_wrist', None),
-            ('left_shoulder', 'left_hip', None),
-            ('right_shoulder', 'right_hip', None),
-            ('left_hip', 'left_knee', 'left_knee'),
-            ('right_hip', 'right_knee', 'right_knee'),
-            ('left_knee', 'left_ankle', 'left_knee'),
-            ('right_knee', 'right_ankle', 'right_knee'),
-            ('left_ankle', 'left_foot_index', 'left_foot_rotation'),
-            ('right_ankle', 'right_foot_index', 'right_foot_rotation')
+            ('left_eye', 'right_eye', 'Head Tilt - Left', 'Head Tilt - Right'),
+            ('left_shoulder', 'right_shoulder', 'Shoulder Tilt - Left', 'Shoulder Tilt - Right'),
+            ('left_hip', 'right_hip', 'Pelvic Tilt - Left', 'Pelvic Tilt - Right'),
+            ('left_shoulder', 'left_elbow', None, None),
+            ('left_elbow', 'left_wrist', None, None),
+            ('right_shoulder', 'right_elbow', None, None),
+            ('right_elbow', 'right_wrist', None, None),
+            ('left_shoulder', 'left_hip', None, None),
+            ('right_shoulder', 'right_hip', None, None),
+            ('left_hip', 'left_knee', 'Knee - Valgus', 'Knee - Varus'),
+            ('right_hip', 'right_knee', 'Knee - Valgus', 'Knee - Varus'),
+            ('left_knee', 'left_ankle', 'Knee - Valgus', 'Knee - Varus'),
+            ('right_knee', 'right_ankle', 'Knee - Valgus', 'Knee - Varus'),
+            ('left_ankle', 'left_foot_index', 'Foot Rotation - Externally Rotated', 'Foot Rotation - Internally Rotated'),
+            ('right_ankle', 'right_foot_index', 'Foot Rotation - Externally Rotated', 'Foot Rotation - Internally Rotated')
         ]
     elif view == 'lateral':
         connections = [
-            ('right_ear', 'right_shoulder', 'forward_head'),
-            ('right_shoulder', 'right_hip', 'round_shoulders'),
-            ('right_hip', 'right_knee', 'pelvic_tilt'),
-            ('right_knee', 'right_ankle', 'knee_angle')
+            ('right_ear', 'right_shoulder', 'Forward Head', None),
+            ('right_shoulder', 'right_hip', 'Round Shoulders', None),
+            ('right_hip', 'right_knee', 'Pelvic Tilt - Anterior', 'Pelvic Tilt - Posterior'),
+            ('right_knee', 'right_ankle', 'Knee Angle', None)
         ]
 
-    for start, end, analysis_key in connections:
+    # Determine if pelvic tilt is anterior or posterior in lateral view
+    highlight_hip_knee = False
+    if view == 'lateral':
+        pelvic_tilt_anterior = analysis_results.get('Pelvic Tilt - Anterior')
+        pelvic_tilt_posterior = analysis_results.get('Pelvic Tilt - Posterior')
+        if (pelvic_tilt_anterior and pelvic_tilt_anterior[0] in ['Severe', 'Mild']) or \
+           (pelvic_tilt_posterior and pelvic_tilt_posterior[0] in ['Severe', 'Mild']):
+            highlight_hip_knee = True
+
+    for connection in connections:
+        start, end, key1, key2 = connection
         color = (0, 255, 0)  # Default green
-        if analysis_key and analysis_key in analysis_results:
-            status = analysis_results[analysis_key][0]
+        if key1 and key1 in analysis_results:
+            status = analysis_results[key1][0]
             if 'Severe' in status:
                 color = (0, 0, 255)  # Red if severe
             elif 'Mild' in status:
                 color = (0, 165, 255)  # Orange if mild
+        elif key2 and key2 in analysis_results:
+            status = analysis_results[key2][0]
+            if 'Severe' in status:
+                color = (0, 0, 255)  # Red if severe
+            elif 'Mild' in status:
+                color = (0, 165, 255)  # Orange if mild
+
+        # For lateral view, if 'Knee Angle' is abnormal, highlight in red
+        if view == 'lateral' and highlight_hip_knee and ('Knee Angle' in key1 or 'Knee Angle' in key2):
+            color = (0, 0, 255)
+
         if start in keypoints and end in keypoints:
             draw_line(keypoints[start], keypoints[end], color)
 
@@ -345,6 +401,13 @@ def draw_landmarks_and_angles(image, keypoints, view, analysis_results):
                 mid_eye = tuple(((np.array(keypoints['left_eye']) + np.array(keypoints['right_eye'])) / 2).astype(int))
                 draw_line(mid_eye, mid_shoulder, (0, 255, 0))
             draw_line(mid_shoulder, mid_hip, (0, 255, 0))
+
+    # For lateral view, if pelvic tilt is anterior or posterior, redraw the hip-knee line in red
+    if view == 'lateral' and highlight_hip_knee:
+        if 'right_hip' in keypoints and 'right_knee' in keypoints:
+            hip = keypoints['right_hip']
+            knee = keypoints['right_knee']
+            draw_line(hip, knee, (0, 0, 255))  # Red color
 
     return annotated_image
 
@@ -399,42 +462,39 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
         for key, value in results.items():
             if isinstance(value, tuple) and len(value) == 3:
                 status, measurement, direction = value
-                if 'Severe' in status:
-                    color = 'red'
-                    bold = 'bold'
-                elif 'Mild' in status:
-                    color = 'darkorange'
-                    bold = 'bold'
+                condition = key  # e.g., 'Head Tilt - Left'
+                if 'Not detected' in status:
+                    content = f"{condition}: {status} - {direction}"
                 else:
-                    color = 'black'
-                    bold = 'normal'
+                    # Determine color based on status
+                    if 'Severe' in status:
+                        color = 'red'
+                        bold = 'bold'
+                    elif 'Mild' in status:
+                        color = 'darkorange'
+                        bold = 'bold'
+                    else:
+                        color = 'black'
+                        bold = 'normal'
 
-                direction_color = 'black'
-                if 'Left' in direction or 'Varus' in direction or 'Externally' in direction:
-                    direction_color = 'darkblue'
-                elif 'Right' in direction or 'Valgus' in direction or 'Internally' in direction:
-                    direction_color = 'darkred'
+                    # Determine color for direction
+                    direction_color = 'black'
+                    if 'Left' in direction or 'Varus' in direction or 'Externally Rotated' in condition:
+                        direction_color = 'darkblue'
+                    elif 'Right' in direction or 'Valgus' in direction or 'Internally Rotated' in condition:
+                        direction_color = 'darkred'
+                    elif 'Anterior' in condition or 'Posterior' in condition:
+                        direction_color = 'darkred'
 
-                if key == 'pelvic_tilt' and title == "Lateral View Analysis":
-                    data.append([Paragraph(
-                        f"<font color='black'>{key.replace('_', ' ').title()}:</font> <font color='red'><b>{status}</b></font> - {direction}",
-                        styles['CustomBodyText'])])
-                elif key == 'forward_head':
-                    data.append([Paragraph(
-                        f"<font color='black'>{key.replace('_', ' ').title()}:</font> <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='darkblue'>{direction}</font>",
-                        styles['CustomBodyText'])])
-                elif key == 'knee_angle':
-                    data.append([Paragraph(
-                        f"Knee Angle: <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='{direction_color}'>{direction}</font>",
-                        styles['CustomBodyText'])])
-                else:
-                    data.append([Paragraph(
-                        f"<font color='black'>{key.replace('_', ' ').title()}:</font> <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='{direction_color}'>{direction}</font>",
-                        styles['CustomBodyText'])])
+                    if key == 'Knee Angle':
+                        content = f"Knee Angle: <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='{direction_color}'>{direction}</font>"
+                    else:
+                        content = f"<font color='black'>{condition}:</font> <font color='{color}'><b>{status}</b></font> ({measurement:.1f}°) - <font color='{direction_color}'>{direction}</font>"
+                data.append([Paragraph(content, styles['CustomBodyText'])])
             else:
                 logging.warning(f"Unexpected format for key {key}: {value}")
                 data.append([Paragraph(f"{key.replace('_', ' ').title()}: {value}", styles['CustomBodyText'])])
-        return Table(data, colWidths=[3.3 * inch], style=TableStyle([
+        return Table(data, colWidths=[6.5 * inch], style=TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.darkblue),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
@@ -474,13 +534,8 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
         for key, value in results.items():
             if isinstance(value, tuple) and len(value) == 3:
                 status, measurement, direction = value
-                if 'Normal' not in status and 'Aligned' not in direction:
-                    if key == 'pelvic_tilt' and view == "Lateral View":
-                        issue = f"{key.replace('_', ' ').title()}: {status} - {direction}"
-                    elif key == 'knee_angle':
-                        issue = f"Knee Angle: {status} ({measurement:.1f}°) - {direction}"
-                    else:
-                        issue = f"{key.replace('_', ' ').title()}: {status} ({measurement:.1f}°) - {direction}"
+                if 'Normal' not in status and 'Aligned' not in direction and 'Neutral' not in status:
+                    issue = key  # e.g., 'Head Tilt - Left'
                     all_issues.append((issue, measurement))
             else:
                 logging.warning(f"Unexpected format for key {key}: {value}")
@@ -488,39 +543,10 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     all_issues.sort(key=lambda x: get_issue_order(x[0]))
 
     for i, (issue, _) in enumerate(all_issues, 1):
-        parts = issue.split(':')
-        key = parts[0].strip()
-        value = ':'.join(parts[1:]).strip()
+        # issue is like 'Head Tilt - Left'
+        condition = issue  # Full condition name
 
-        if 'Severe' in value:
-            color = 'red'
-            bold = 'bold'
-        elif 'Mild' in value:
-            color = 'darkorange'
-            bold = 'bold'
-        else:
-            color = 'black'
-            bold = 'normal'
-
-        direction = value.split('-')[-1].strip()
-        direction_color = 'black'
-        if 'Left' in direction or 'Varus' in direction or 'Externally' in direction:
-            direction_color = 'darkblue'
-        elif 'Right' in direction or 'Valgus' in direction or 'Internally' in direction:
-            direction_color = 'darkred'
-
-        if 'Knee Angle' in key:
-            story.append(Paragraph(
-                f"{i}. <font color='black'>{key}:</font> <font color='{color}'><b>{value.split('-')[0].strip()}</b></font> - <font color='{direction_color}'>{direction}</font>",
-                styles['CustomBodyText']))
-        elif 'pelvic tilt' in key.lower():
-            story.append(Paragraph(
-                f"{i}. <font color='black'>{key}:</font> <font color='{color}'><b>{value.split('-')[0].strip()}</b></font> - <font color='{direction_color}'>{direction}</font>",
-                styles['CustomBodyText']))
-        else:
-            story.append(Paragraph(
-                f"{i}. <font color='black'>{key}:</font> <font color='{color}'><b>{value.split('-')[0].strip()}</b></font> - <font color='{direction_color}'>{direction}</font>",
-                styles['CustomBodyText']))
+        story.append(Paragraph(f"{i}. {condition}", styles['CustomBodyText']))
 
     if not all_issues:
         story.append(Paragraph("No significant postural issues detected.", styles['CustomBodyText']))
@@ -549,28 +575,27 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
 
     # Add exercises for detected issues
     for i, (issue, _) in enumerate(all_issues):
-        issue_title = issue.split(':')[0].strip()
-
-        exercise_title = f"{chr(65 + i)}. {key_to_title(issue_title)}"
+        exercise_title = f"{chr(65 + i)}. {key_to_title(issue)}"
         story.append(Paragraph(exercise_title, styles['CustomHeading3']))
 
-        issue_exercises = exercises.get(issue_title, [])
+        issue_exercises = exercises.get(issue, [])
 
         for idx, exercise in enumerate(issue_exercises, start=1):
             story.append(Paragraph(f"{exercise}", styles['CustomBodyText']))
 
-            image_path = os.path.join('Exercise', issue_title, f"{idx}.jpg")
+            # Image path based on issue and exercise number
+            image_path = os.path.join('Exercise', issue, f"{idx}.jpg")
             full_image_path = os.path.join(os.getcwd(), image_path)
             if os.path.exists(full_image_path):
                 story.append(RLImage(full_image_path, width=3 * cm, height=3 * cm, kind='proportional'))
-                logging.info(f"Found image for {issue_title}: {full_image_path}")
+                logging.info(f"Found image for {issue}: {full_image_path}")
             else:
                 story.append(Paragraph("Exercise image not found.", styles['CustomBodyText']))
-                logging.warning(f"Image not found for {issue_title}: {full_image_path}")
+                logging.warning(f"Image not found for {issue}: {full_image_path}")
 
         if not issue_exercises:
             story.append(Paragraph("No specific exercises found for this issue.", styles['CustomBodyText']))
-            logging.warning(f"No exercises found for {issue_title}")
+            logging.warning(f"No exercises found for {issue}")
 
         story.append(Spacer(1, 6))
 
@@ -601,7 +626,7 @@ def generate_report(anterior_results, lateral_results, anterior_image_path, late
     return output_buffer
 
 def key_to_title(key):
-    return ' '.join(word.capitalize() for word in key.replace('-', '_').split('_'))
+    return key  # Already formatted as 'Head Tilt - Left' etc.
 
 # Route Definitions
 
@@ -685,20 +710,29 @@ def index():
                 logging.info("Report generation complete.")
 
                 # Send the PDF as a downloadable file
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                pdf_filename = f"posture_analysis_report_{timestamp}.pdf"
+
                 return send_file(
                     pdf_buffer,
                     as_attachment=True,
-                    download_name=f"posture_analysis_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    download_name=pdf_filename,
                     mimetype='application/pdf'
                 )
 
         except Exception as e:
             logging.error(f"An error occurred during processing: {str(e)}")
             logging.exception("Exception details:")
-            flash('An error occurred while processing your images. Please try again.')
+            flash('An error occurred while processing your images. Please ensure the images are not too large and try again.')
             return redirect(request.url)
 
     return render_template('index.html')
+
+# Error handler for file size limit
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    flash('所上傳的檔案太大，請上傳小於10MB的圖像。')
+    return redirect(request.url)
 
 # Run the app (for local testing)
 if __name__ == "__main__":
