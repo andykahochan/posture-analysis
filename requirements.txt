@@ -4,3 +4,4 @@ numpy
 mediapipe
 reportlab
 gunicorn
+pillow
